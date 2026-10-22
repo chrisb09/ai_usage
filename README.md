@@ -33,6 +33,9 @@ Supported providers:
 - **Safe credential handling** — provider files are read-only except Codex,
   where rotated OAuth tokens are written back atomically to its own `auth.json`
   (the same file the CLI uses) to keep the login alive.
+- **MCP for opencode** — a stateless Streamable HTTP endpoint at `/mcp` exposes
+  compact `usage_overview`, `usage_history`, and `refresh_usage` tools to
+  opencode and other MCP clients.
 - **Secret-safe output** — API responses and logs never include tokens, cookies,
   API keys, or client secrets.
 
@@ -296,6 +299,26 @@ manual check and waits for it to finish.
 
 Full reference with authentication examples: [docs/API.md](docs/API.md). Short
 version below.
+
+The same service also exposes an MCP endpoint at `POST /mcp`. opencode can use
+it as a remote MCP server; it is protected by the same Basic Auth:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ai-usage": {
+      "type": "remote",
+      "url": "https://usage.christian-f-brinkmann.de/mcp",
+      "oauth": false,
+      "headers": { "Authorization": "Basic {env:AI_USAGE_BASIC}" }
+    }
+  }
+}
+```
+
+Set `AI_USAGE_BASIC` to `base64(username:password)` and see
+[docs/API.md](docs/API.md#mcp-endpoint) for the tools and details.
 
 ### `GET /api/usage`
 

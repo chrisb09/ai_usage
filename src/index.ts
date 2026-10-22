@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js"
 import { UsageDatabase } from "./db.js"
 import { UsageScheduler } from "./scheduler.js"
 import { registerApi } from "./api.js"
+import { registerMcp } from "./mcp.js"
 import { registerStatic } from "./static.js"
 
 async function main(): Promise<void> {
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
 
   await app.register(rateLimit, { global: false })
   registerApi(app, { config, db, scheduler })
+  registerMcp(app, { config, db, scheduler })
   await registerStatic(app, config.webRoot)
 
   app.setNotFoundHandler((_request, reply) => {

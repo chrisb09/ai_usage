@@ -188,6 +188,62 @@ Liveness and counts. Useful for monitoring or a proxy health check:
 Read-only configuration: `version`, `policy`, `schedulerIntervalSec`,
 `concurrency`, and the same `counts` as health.
 
+## MCP endpoint
+
+`POST /mcp` implements the MCP Streamable HTTP transport (stateless, JSON
+responses). It exposes three tools:
+
+| Tool | Purpose |
+|---|---|
+| `usage_overview` | Current accounts, quota percentages, balances, errors, next checks |
+| `usage_history` | Compact per-series trends: first/last, change, min/max, reset |
+| `refresh_usage` | Force checks; accepts `accountKeys`, omits them to refresh all |
+
+Only `POST` is supported. `GET` and `DELETE` return `405 Method Not Allowed`.
+The endpoint has no built-in authentication; it relies on the same reverse-proxy
+Basic Auth as the rest of the site. Do not expose it directly.
+
+### opencode configuration
+
+Create a Basic credential once (standard base64 of `username:password`, not URL-safe):
+
+```bash
+printf '%s' 'username:password' | base64
+```
+
+Set the result as `AI_USAGE_BASIC`, then add this to `opencode.json` or
+`opencode.jsonc`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "ai-usage": {
+      "type": "remote",
+      "url": "https://usage.christian-f-brinkmann.de/mcp",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Basic {env:AI_USAGE_BASIC}"
+      }
+    }
+  }
+}
+```
+
+`oauth` must be `false`; otherwise opencode may try its OAuth flow when the
+proxy returns `401`. The tools are then available as `ai-usage_*` in prompts,
+for example: *"Use ai-usage_usage_overview to find quotas below 20%."*
+
+Direct JSON-RPC example:
+
+```bash
+curl -su 'username:password' -X POST \
+  https://usage.christian-f-brinkmann.de/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
 ## Polling guidance
 
 - Poll `/api/usage` at a modest rate, for example every 30 seconds. The server
