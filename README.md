@@ -294,6 +294,9 @@ manual check and waits for it to finish.
 
 ## HTTP API
 
+Full reference with authentication examples: [docs/API.md](docs/API.md). Short
+version below.
+
 ### `GET /api/usage`
 
 Current state for every known account, including quotas, freshness, errors,
@@ -361,6 +364,24 @@ usage.example.com {
 
 The app does not implement its own authentication. Keep the published port on
 loopback and let the reverse proxy handle access control.
+
+For multiple users, create a bcrypt password file and point the proxy at it:
+
+```bash
+htpasswd -Bc /container/config/ai_usage/.htpasswd alice   # first user creates it
+htpasswd -B /container/config/ai_usage/.htpasswd bob      # additional users
+```
+
+```nginx
+location / {
+  auth_basic "AI Usage";
+  auth_basic_user_file /etc/nginx/ai_usage.htpasswd;
+  proxy_pass http://127.0.0.1:7694;
+}
+```
+
+API clients then pass `curl -u 'username:password'`. See
+[docs/API.md](docs/API.md#authentication) for details.
 
 ## Local development
 
