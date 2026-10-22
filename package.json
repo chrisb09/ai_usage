@@ -1,0 +1,38 @@
+{
+  "name": "ai-usage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "workspaces": [
+    "web"
+  ],
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env --import tsx src/index.ts",
+    "dev:web": "npm run dev -w @ai-usage/web",
+    "build": "npm run build:server && npm run build -w @ai-usage/web",
+    "build:server": "tsc -p tsconfig.json",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "collect": "node --env-file-if-exists=.env --import tsx src/cli-collect.ts",
+    "import:csv": "node --env-file-if-exists=.env --import tsx src/import-csv.ts",
+    "backup:db": "node --env-file-if-exists=.env --import tsx src/backup-db.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && npm run typecheck -w @ai-usage/web",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^11.2.1",
+    "@fastify/static": "^10.1.7",
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.18.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}
