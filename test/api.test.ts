@@ -130,4 +130,38 @@ describe("HTTP API", () => {
     expect(response.statusCode).toBe(400)
     expect(response.json().error.code).toBe("invalid_request")
   })
+
+  it("serves redacted public usage overview", async () => {
+    const { app, ref } = await buildTestApp()
+    const response = await app.inject({ method: "GET", url: "/api/public/usage" })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.isPublic).toBe(true)
+    expect(body.accounts).toHaveLength(1)
+
+    const account = body.accounts[0]
+    expect(account.label).toBe("te**@example.com")
+    expect(account.accountKey).not.toBe(ref.accountKey)
+    expect(account.accountKey).not.toContain("test@example.com")
+    expect(account.accountKey.startsWith("google:")).toBe(true)
+    expect(account.quotas[0].remaining).toBeCloseTo(0.75)
+  })
+
+  it("serves redacted public history with public keys", async () => {
+    const { app } = await buildTestApp()
+    const usageRes = await app.inject({ method: "GET", url: "/api/public/usage" })
+    const publicKey = usageRes.json().accounts[0].accountKey
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/public/history?accountKey=${encodeURIComponent(publicKey)}&from=2026-09-01T00:00:00Z`,
+    })
+
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.points).toHaveLength(1)
+    expect(body.points[0].accountKey).toBe(publicKey)
+    expect(body.points[0].remaining).toBeCloseTo(0.75)
+  })
 })

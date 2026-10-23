@@ -29,6 +29,16 @@ export async function registerStatic(
     return reply.sendFile("index.html")
   })
 
+  app.get("/public", async (_request, reply) => {
+    reply.header("Cache-Control", "no-cache")
+    return reply.sendFile("index.html")
+  })
+
+  app.get("/public/*", async (_request, reply) => {
+    reply.header("Cache-Control", "no-cache")
+    return reply.sendFile("index.html")
+  })
+
   app.get("/*", async (request, reply) => {
     const urlPath = request.url.split("?")[0] ?? "/"
     if (urlPath.startsWith("/api/")) {

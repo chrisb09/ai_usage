@@ -7,25 +7,33 @@ export function Header(props: {
   refreshing: boolean
   onRefresh: () => void
   now: number
+  isPublic?: boolean
 }) {
-  const { usage, refreshing, onRefresh, now } = props
+  const { usage, refreshing, onRefresh, now, isPublic } = props
   const accounts = (usage?.accounts ?? []).filter((account) => account.active)
   const issues = accounts.filter((account) => account.lastError || account.lastWarning || account.stale).length
   const latestSuccess = accounts.map((account) => account.lastSuccessAt).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null
 
   return (
     <header className="topbar" id="overview">
-      <h1>AI Usage</h1>
+      <div className="topbar-brand">
+        <h1>AI Usage</h1>
+        {isPublic && <span className="public-badge">Public Overview</span>}
+      </div>
       <div className="topbar-actions">
         <span className={`connection-status ${!usage ? "" : issues ? "tone-warn" : "tone-good"}`}>
           <span className="status-light" />
           {!usage ? "Connecting" : issues ? `${issues} ${issues === 1 ? "needs" : "need"} attention` : `${accounts.length} accounts healthy`}
         </span>
         <span className="last-sync">Updated {formatRelative(latestSuccess, now)}</span>
-        <button className="button button-primary" onClick={onRefresh} disabled={refreshing || !usage}>
-          {refreshing ? <span className="spinner" /> : <Icon name="refresh" />}
-          {refreshing ? "Checking…" : "Refresh all"}
-        </button>
+        {isPublic ? (
+          <span className="readonly-indicator">Read-only</span>
+        ) : (
+          <button className="button button-primary" onClick={onRefresh} disabled={refreshing || !usage}>
+            {refreshing ? <span className="spinner" /> : <Icon name="refresh" />}
+            {refreshing ? "Checking…" : "Refresh all"}
+          </button>
+        )}
       </div>
     </header>
   )

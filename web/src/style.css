@@ -27,6 +27,9 @@ button:disabled { opacity: .55; cursor: wait; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .app { width: 100%; max-width: 1800px; margin: 0 auto; padding: 0 24px 24px; }
 .topbar { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.topbar-brand { display: flex; align-items: center; gap: 10px; }
+.public-badge { font-size: 10px; font-weight: 500; color: var(--accent); background: #202e27; border: 1px solid #3a4c43; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: .5px; }
+.readonly-indicator { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; background: var(--surface); }
 h1 { font-size: 17px; font-weight: 600; letter-spacing: -.4px; }
 .topbar-actions { display: flex; align-items: center; gap: 18px; }
 .connection-status { display: flex; gap: 6px; align-items: center; font-size: 11px; }

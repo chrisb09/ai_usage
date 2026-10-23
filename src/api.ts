@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify"
 import { z } from "zod"
 import type { AppConfig } from "./config.js"
 import type { UsageDatabase } from "./db.js"
+import { maskAccount, sanitizeError, toPublicAccountKey } from "./mask.js"
 import { isStale } from "./policy.js"
 import type { UsageScheduler } from "./scheduler.js"
 import type { Trigger } from "./domain.js"
@@ -98,6 +99,62 @@ export function registerApi(
     }
   })
 
+  app.get(
+    "/api/public/usage",
+    {
+      config: {
+        rateLimit: {
+          max: 60,
+          timeWindow: "1 minute",
+        },
+      },
+    },
+    async () => {
+      const now = new Date()
+      const views = db.buildViews({
+        refreshing: (accountKey) => scheduler.isRefreshing(accountKey),
+        isStale: (lastSuccessAt) =>
+          isStale(lastSuccessAt, config.policy.maxIntervalSec, now),
+      })
+
+      const discovered = new Set(scheduler.getDiscoveredAccountKeys())
+      const hasDue = views.some((view) => {
+        if (!view.active || !discovered.has(view.accountKey)) return false
+        if (!view.nextCheckAt) return true
+        const next = Date.parse(view.nextCheckAt)
+        return !Number.isFinite(next) || next <= now.getTime()
+      })
+
+      if (hasDue) {
+        void scheduler.triggerDue("request").catch((error: unknown) => {
+          app.log.error({ error }, "public request-triggered refresh failed")
+        })
+      }
+
+      const publicViews = views
+        .filter((view) => view.active)
+        .map((view) => ({
+          ...view,
+          accountKey: toPublicAccountKey(view.accountKey),
+          label: maskAccount(view.label),
+          lastError: sanitizeError(view.lastError),
+          lastWarning: sanitizeError(view.lastWarning),
+        }))
+
+      return {
+        serverTime: now.toISOString(),
+        accounts: publicViews,
+        policy: config.policy,
+        scheduler: {
+          lastTickAt: scheduler.getLastTickAt(),
+          ticking: scheduler.isTicking(),
+        },
+        refreshing: views.some((view) => view.refreshing) || hasDue,
+        isPublic: true,
+      }
+    },
+  )
+
   app.get("/api/history", async (request, reply) => {
     const parsed = historyQuerySchema.safeParse(request.query)
     if (!parsed.success) {
@@ -141,6 +198,85 @@ export function registerApi(
       throw error
     }
   })
+
+  app.get(
+    "/api/public/history",
+    {
+      config: {
+        rateLimit: {
+          max: 120,
+          timeWindow: "1 minute",
+        },
+      },
+    },
+    async (request, reply) => {
+      const parsed = historyQuerySchema.safeParse(request.query)
+      if (!parsed.success) {
+        return reply.code(400).send(badRequest(parsed.error.issues[0]?.message ?? "Invalid query"))
+      }
+
+      try {
+        const from = parseDate(parsed.data.from, "from")
+        const to = parseDate(parsed.data.to, "to")
+
+        let realAccountKey: string | undefined = undefined
+        if (parsed.data.accountKey) {
+          const accounts = db.getAccounts()
+          const matched = accounts.find(
+            (acc) => toPublicAccountKey(acc.account_key) === parsed.data.accountKey,
+          )
+          if (matched) {
+            realAccountKey = matched.account_key
+          } else {
+            return {
+              points: [],
+              bucketSec: 300,
+              from: from ?? null,
+              to: to ?? null,
+            }
+          }
+        }
+
+        const earliest =
+          from ??
+          db.getEarliestCheckAt({
+            accountKey: realAccountKey,
+            quotaKey: parsed.data.quotaKey,
+          }) ??
+          undefined
+        const bucketSec =
+          parsed.data.bucketSec && parsed.data.bucketSec > 0
+            ? parsed.data.bucketSec
+            : autoBucketSec(earliest, to)
+
+        const points = db.getHistory({
+          accountKey: realAccountKey,
+          quotaKey: parsed.data.quotaKey,
+          from,
+          to,
+          bucketSec,
+          limit: parsed.data.limit,
+        })
+
+        const publicPoints = points.map((point) => ({
+          ...point,
+          accountKey: toPublicAccountKey(point.accountKey),
+        }))
+
+        return {
+          points: publicPoints,
+          bucketSec,
+          from: from ?? null,
+          to: to ?? null,
+        }
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return reply.code(400).send(badRequest(error.issues[0]?.message ?? "Invalid date"))
+        }
+        throw error
+      }
+    },
+  )
 
   app.post(
     "/api/refresh",

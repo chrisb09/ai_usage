@@ -60,8 +60,9 @@ export function AccountCard(props: {
   account: AccountView
   now: number
   onRefresh: (accountKey: string) => Promise<void>
+  isPublic?: boolean
 }) {
-  const { account, now, onRefresh } = props
+  const { account, now, onRefresh, isPublic } = props
   const [busy, setBusy] = useState(false)
   const refreshing = busy || account.refreshing
 
@@ -114,9 +115,11 @@ export function AccountCard(props: {
           <span>{formatRelative(account.lastSuccessAt, now)}</span>
           <span>Next {formatCountdown(account.nextCheckAt, now)}</span>
         </div>
-        <button className="button button-icon" aria-label={`Refresh ${account.label}`} title="Check usage now" onClick={() => void handleRefresh()} disabled={refreshing}>
-          {refreshing ? <span className="spinner" /> : <Icon name="refresh" />}
-        </button>
+        {!isPublic && (
+          <button className="button button-icon" aria-label={`Refresh ${account.label}`} title="Check usage now" onClick={() => void handleRefresh()} disabled={refreshing}>
+            {refreshing ? <span className="spinner" /> : <Icon name="refresh" />}
+          </button>
+        )}
       </div>
 
       {(account.lastError || account.lastWarning || account.stale) && (

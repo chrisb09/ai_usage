@@ -28,8 +28,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+export function isPublicPath(): boolean {
+  if (typeof window === "undefined") return false
+  const path = window.location.pathname
+  return path === "/public" || path.startsWith("/public/")
+}
+
 export function getUsage(): Promise<UsageResponse> {
-  return request<UsageResponse>("/api/usage")
+  const url = isPublicPath() ? "/api/public/usage" : "/api/usage"
+  return request<UsageResponse>(url)
 }
 
 export function getHistory(args: {
@@ -43,10 +50,14 @@ export function getHistory(args: {
   if (args.from) params.set("from", args.from)
   if (args.to) params.set("to", args.to)
   if (args.bucketSec) params.set("bucketSec", String(args.bucketSec))
-  return request<HistoryResponse>(`/api/history?${params.toString()}`)
+  const endpoint = isPublicPath() ? "/api/public/history" : "/api/history"
+  return request<HistoryResponse>(`${endpoint}?${params.toString()}`)
 }
 
 export function refreshAccounts(accountKeys?: string[]): Promise<RefreshResponse> {
+  if (isPublicPath()) {
+    return Promise.reject(new Error("Manual refresh is not available in public mode."))
+  }
   return request<RefreshResponse>("/api/refresh", {
     method: "POST",
     body: JSON.stringify(accountKeys ? { accountKeys } : {}),

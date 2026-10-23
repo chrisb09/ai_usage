@@ -3,7 +3,7 @@ import { AccountCard } from "./AccountCard"
 import { Header } from "./Header"
 import { HistoryChart } from "./HistoryChart"
 import { Icon } from "./Icon"
-import { getUsage, refreshAccounts } from "./api"
+import { getUsage, isPublicPath, refreshAccounts } from "./api"
 import { providerOrder } from "./format"
 import type { AccountView, UsageResponse } from "./types"
 
@@ -31,6 +31,13 @@ export default function App() {
   const [now, setNow] = useState(Date.now())
   const [providerFilter, setProviderFilter] = useState("All providers")
   const [search, setSearch] = useState("")
+  const isPublic = isPublicPath() || Boolean(usage?.isPublic)
+
+  useEffect(() => {
+    if (isPublic) {
+      document.title = "AI Usage (Public Overview)"
+    }
+  }, [isPublic])
 
   useEffect(() => {
     let cancelled = false
@@ -139,7 +146,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <Header usage={usage} now={now} refreshing={refreshingAll} onRefresh={() => void handleRefreshAll()} />
+      <Header usage={usage} now={now} refreshing={refreshingAll} onRefresh={() => void handleRefreshAll()} isPublic={isPublic} />
 
       <main>
         {pollError && <div role="alert" className="banner banner-error">API error: {pollError}</div>}
@@ -185,6 +192,7 @@ export default function App() {
                       account={account}
                       now={now}
                       onRefresh={handleRefreshAccount}
+                      isPublic={isPublic}
                     />
                   ))}
                 </div>

@@ -46,6 +46,7 @@ export interface UsageResponse {
     ticking: boolean
   }
   refreshing: boolean
+  isPublic?: boolean
 }
 
 export interface HistoryPoint {
