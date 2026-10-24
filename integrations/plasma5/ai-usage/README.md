@@ -1,30 +1,27 @@
 # AI Usage panel widget (Plasma 5)
 
 A native Plasma 5 panel widget for the self-hosted AI usage dashboard. It reads
-`GET /api/usage` and renders the selected quotas as a compact stack of horizontal
-bars. The panel shows no text: the bars themselves are the indicator.
+`GET /api/usage` and pools quotas by provider and type across all active
+accounts. The panel is text-free: one thin horizontal bar per type, using its
+longest rolling window.
 
-```text
-[=====|==========]   quota remaining
-[========|=======]   time remaining
-```
+- Fill length is the **pooled remaining fraction**. Two equal-capacity accounts
+  with 20% and 80% remaining produce a 50% bar.
+- The faint solid black line marks **average time remaining**, weighted by
+  window length. Two weekly limits resetting in two and five days therefore put
+  the line at `(2 + 5) / (7 + 7) = 50%`.
+- Fill right of the line means ahead of pace; left means behind.
+- Google Claude and Gemini are separate types. Their 5-hour and weekly limits
+  are never combined into one percentage.
+- Bar and percentage colour follows a continuous scale from red at 0% through
+  orange and yellow to bright green at 100%. Grey means unavailable. A red dot
+  indicates account, authentication, or network problems.
 
-- Bar length is the **remaining fraction**: 38% remaining fills 38% of the bar.
-- The panel is intentionally text-free: each selected quota is one thin bar,
-  stacked vertically. Hover the widget for a text summary; click for details.
-- The faint dashed red line marks **how much of the quota window is left**. If
-  the fill is to the right of the line, you have more quota left than time left
-  and are ahead of pace. If it is to the left, you are burning quota faster than
-  the window.
-- Bar colour changes at 20% remaining or when you are more than 5 percentage
-  points behind pace, and turns red at 5% or less.
-- A small red dot appears when the widget cannot authenticate, cannot reach the
-  dashboard, or any account reports an error.
-
-Click the widget to open a native Plasma popup. It lists every active account and
-quota, including 5-hour windows, reset countdowns, balance amounts, pace, and
-account errors. Google Claude and Gemini pools stay separate. Right-click the
-widget for **Open dashboard**, **Refresh providers**, and **Reload credentials**.
+Click the widget to open a native Plasma popup. Each type occupies one compact
+row, with its two or three windows side by side. Reset countdowns, balances,
+pace, and errors remain available without listing every account. Hover the
+panel for pooled values. Right-click for **Open dashboard**, **Refresh
+providers**, and **Reload credentials**.
 
 ## Requirements
 
@@ -46,10 +43,9 @@ Then store the dashboard Basic credential in the Secret Service (KWallet):
 ./ai-usage/scripts/setup-kwallet.sh
 ```
 
-The script prompts for the dashboard username and password and writes
-`base64(username:password)` to the `ai-usage-basic` entry in the `ai-usage`
-folder of the `kdewallet` wallet. It does not put the secret in the widget
-configuration.
+The script prompts for the dashboard username and password and stores
+`base64(username:password)` in the Secret Service as `service=ai-usage`,
+`entry=basic`. It does not put the secret in the widget configuration.
 
 Finally, right-click the panel, choose **Add Widgets**, and add **AI Usage**. If
 it does not appear, restart Plasma or log out and back in.
@@ -69,24 +65,11 @@ Right-click the widget and choose **Configure AI Usage…**.
 | Dashboard URL | `https://usage.christian-f-brinkmann.de` | Base URL; `/api/usage` is appended |
 | Credential command | `secret-tool lookup service ai-usage entry basic` | Prints base64 `username:password` or a complete `Basic …` header |
 | Refresh interval | 60 s | Poll interval for cached API data |
-| Panel quotas | see below | Comma-separated `provider:quotaKey` selectors |
 | Panel bar width | 72 px | Width of each bar in the panel |
 
-The default panel selection is:
-
-```text
-google:claude-weekly,codex:codex-weekly,opencode-go:opencode-go-monthly,oneprovider:oneprovider,vnai-pro:vnai-pro
-```
-
-Selectors use the provider name and quota key from `/api/usage`. For a provider
-with multiple accounts, such as Google, the widget shows the account with the
-least remaining quota in that pool. Add other keys, for example:
-
-```text
-google:claude-weekly,google:gemini-weekly,codex:codex-weekly,codex:codex-5h,opencode-go:opencode-go-weekly
-```
-
-The full popup always shows all active accounts, independent of this list.
+All active accounts are pooled automatically; no account or quota selection is
+needed. Missing values are excluded from the pooled average and flagged as
+incomplete in the tooltip. They are never silently treated as zero.
 
 ### Credential alternatives
 
@@ -118,7 +101,8 @@ every quota when known (`604800` for weekly, `2592000` for monthly, `18000` for
 Balance-style quotas such as OneProvider and VNAI Pro have no rolling window, so
 they show a bar but no time marker.
 
-The widget uses the server's `serverTime` for the marker. It polls cached data;
+The widget uses the server's `serverTime` for the marker. Each pooled window
+uses the earliest upcoming reset for its countdown. It polls cached data;
 provider checks remain the scheduler's job. Use **Refresh** in the popup only
 when you explicitly want to contact providers, and note the API's manual refresh
 cooldown.

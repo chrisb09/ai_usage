@@ -38,7 +38,7 @@ Item {
                 height: 5
                 remaining: modelData && modelData.available ? modelData.remaining : -1
                 marker: modelData && modelData.available ? modelData.marker : -1
-                statusColor: modelData ? Usage.statusColor(modelData.status) : Usage.COLOR_UNKNOWN
+                statusColor: modelData ? Usage.remainingColor(modelData.remaining) : Usage.COLOR_UNKNOWN
                 trackColor: compact.trackColor
             }
         }

@@ -12,12 +12,11 @@ Item {
         if (!isFinite(configured)) configured = 72
         return Math.max(40, Math.min(120, configured))
     }
-    readonly property var compactSeries: Usage.selectSeries(
+    readonly property var summary: Usage.buildSummary(
         usageClient.accounts,
-        Plasmoid.configuration.compactQuotas,
         usageClient.serverTime)
-    readonly property var sections: Usage.buildSections(usageClient.accounts)
-    readonly property var rows: Usage.buildRows(sections)
+    readonly property var compactSeries: Usage.compactSummary(summary)
+    readonly property var rows: Usage.buildRows(summary)
     readonly property int activeAccounts: Usage.activeCount(usageClient.accounts)
     readonly property int errorCount: Usage.errorCount(usageClient.accounts)
     readonly property bool hasProblem: usageClient.authFailed ||

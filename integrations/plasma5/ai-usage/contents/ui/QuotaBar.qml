@@ -33,45 +33,12 @@ Item {
         visible: width > 0
     }
 
-    Canvas {
-        id: marker
-        anchors.fill: parent
+    Rectangle {
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        x: Math.max(0, Math.min(parent.width - width, parent.width * bar.marker))
+        width: 1
+        color: Qt.rgba(0, 0, 0, 0.35)
         visible: bar.marker >= 0 && bar.marker <= 1
-
-        onPaint: {
-            var ctx = getContext("2d")
-            ctx.clearRect(0, 0, width, height)
-            if (!visible) return
-
-            var x = Math.max(1, Math.min(width - 2, width * bar.marker))
-
-            ctx.lineWidth = 2
-            ctx.strokeStyle = "rgba(0, 0, 0, 0.35)"
-            ctx.setLineDash([])
-            ctx.beginPath()
-            ctx.moveTo(x, 0)
-            ctx.lineTo(x, height)
-            ctx.stroke()
-
-            ctx.lineWidth = 1
-            ctx.strokeStyle = "#ff5f56"
-            ctx.globalAlpha = 0.9
-            ctx.setLineDash([2, 2])
-            ctx.beginPath()
-            ctx.moveTo(x, 0)
-            ctx.lineTo(x, height)
-            ctx.stroke()
-            ctx.globalAlpha = 1
-            ctx.setLineDash([])
-        }
-
-        Connections {
-            target: bar
-            function onMarkerChanged() { marker.requestPaint() }
-            function onWidthChanged() { marker.requestPaint() }
-            function onHeightChanged() { marker.requestPaint() }
-        }
-
-        Component.onCompleted: requestPaint()
     }
 }

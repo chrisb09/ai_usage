@@ -80,6 +80,36 @@ function statusColor(statusName) {
     return COLOR_UNKNOWN
 }
 
+function remainingColor(value) {
+    var fraction = number(value)
+    if (isNaN(fraction) || fraction < 0) return COLOR_UNKNOWN
+    fraction = clamp(fraction, 0, 1)
+
+    var hue = fraction * 2
+    var saturation = 0.82
+    var brightness = 0.92
+    var chroma = brightness * saturation
+    var x = chroma * (1 - Math.abs(hue % 2 - 1))
+    var red = 0
+    var green = 0
+    var blue = 0
+
+    if (hue < 1) {
+        red = chroma
+        green = x
+    } else {
+        red = x
+        green = chroma
+    }
+
+    var offset = brightness - chroma
+    function channel(component) {
+        var hex = Math.round((component + offset) * 255).toString(16)
+        return hex.length === 1 ? "0" + hex : hex
+    }
+    return "#" + channel(red) + channel(green) + channel(blue)
+}
+
 function formatPct(value, precise) {
     var fraction = number(value)
     if (isNaN(fraction) || fraction < 0) return "—"
@@ -174,21 +204,37 @@ function quotaRank(quota) {
     var key = quota && quota.key ? String(quota.key) : ""
     var label = quota && quota.label ? String(quota.label) : ""
     var text = (key + " " + label).toLowerCase()
-    if (text.indexOf("weekly") >= 0 || text.indexOf("week") >= 0) return 0
-    if (text.indexOf("monthly") >= 0 || text.indexOf("month") >= 0) return 1
+    if (text.indexOf("monthly") >= 0 || text.indexOf("month") >= 0) return 0
+    if (text.indexOf("weekly") >= 0 || text.indexOf("week") >= 0) return 1
     if (text.indexOf("5h") >= 0 || text.indexOf("5-hour") >= 0 || text.indexOf("5 hour") >= 0) return 2
     if (text.indexOf("daily") >= 0 || text.indexOf("day") >= 0) return 3
     return 4
 }
 
+function providerKey(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+}
+
 var PROVIDER_ORDER = [
-    "Google",
+    "Google Claude",
+    "Google Gemini",
     "Codex",
     "OpenCode Go",
     "OneProvider",
     "VNAI Pro",
     "Google Cloud"
 ]
+
+function quotaFamily(account, quota) {
+    var provider = String(account && account.provider || "Other")
+    var text = (String(quota && quota.key || "") + " " +
+        String(quota && quota.label || "")).toLowerCase()
+    if (providerKey(provider) === "google") {
+        if (text.indexOf("claude") >= 0) return "Google Claude"
+        if (text.indexOf("gemini") >= 0) return "Google Gemini"
+    }
+    return provider
+}
 
 function providerRank(provider) {
     for (var i = 0; i < PROVIDER_ORDER.length; i++) {
@@ -197,190 +243,200 @@ function providerRank(provider) {
     return PROVIDER_ORDER.length
 }
 
-function buildRows(sections) {
-    var rows = []
-    for (var s = 0; s < sections.length; s++) {
-        var section = sections[s]
-        rows.push({
-            kind: "section",
-            title: section.title,
-            count: section.accounts.length
+function windowLabel(quota) {
+    var seconds = windowSec(quota)
+    if (seconds === 5 * HOUR_SEC) return "5h"
+    if (seconds === 7 * DAY_SEC) return "7d"
+    if (seconds === 30 * DAY_SEC) return "30d"
+    if (seconds === DAY_SEC) return "1d"
+    if (seconds !== null) return Math.round(seconds / HOUR_SEC) + "h"
+    return "Balance"
+}
+
+function nextReset(quotas, serverTime) {
+    var now = serverTime ? Date.parse(serverTime) : Date.now()
+    var earliest = null
+    for (var i = 0; i < quotas.length; i++) {
+        if (!quotas[i].resetAt) continue
+        var value = Date.parse(quotas[i].resetAt)
+        if (!isFinite(value) || value <= now) continue
+        if (earliest === null || value < earliest) earliest = value
+    }
+    return earliest === null ? null : new Date(earliest).toISOString()
+}
+
+function pooledWindow(quotas, serverTime) {
+    var remainingTotal = 0
+    var remainingCount = 0
+    var timeTotal = 0
+    var windowTotal = 0
+    var balanceTotal = 0
+    var budgetTotal = 0
+    var balanceCount = 0
+    var budgetCount = 0
+
+    for (var i = 0; i < quotas.length; i++) {
+        var quota = quotas[i]
+        var remaining = number(quota.remaining)
+        if (!isNaN(remaining) && remaining >= 0) {
+            remainingTotal += remaining
+            remainingCount += 1
+        }
+
+        var seconds = windowSec(quota)
+        if (seconds !== null && quota.resetAt) {
+            var end = Date.parse(quota.resetAt)
+            var now = serverTime ? Date.parse(serverTime) : Date.now()
+            if (isFinite(end) && isFinite(now)) {
+                timeTotal += clamp((end - now) / 1000, 0, seconds)
+                windowTotal += seconds
+            }
+        }
+
+        var balance = number(quota.raw && quota.raw.balanceUsd)
+        var budget = number(quota.raw && quota.raw.quotaUsd)
+        if (!isNaN(balance)) {
+            balanceTotal += balance
+            balanceCount += 1
+        }
+        if (!isNaN(budget)) {
+            budgetTotal += budget
+            budgetCount += 1
+        }
+    }
+
+    var pooled = {
+        key: quotas.length > 0 ? quotas[0].key : "",
+        label: quotas.length > 0 ? quotas[0].label : "",
+        remaining: remainingCount > 0 ? remainingTotal / remainingCount : -1,
+        resetAt: nextReset(quotas, serverTime),
+        windowSec: quotas.length > 0 ? windowSec(quotas[0]) : null,
+        raw: {}
+    }
+    if (balanceCount === quotas.length) pooled.raw.balanceUsd = balanceTotal
+    if (budgetCount === quotas.length) pooled.raw.quotaUsd = budgetTotal
+
+    var elapsed = windowTotal > 0 ? 1 - timeTotal / windowTotal : -1
+    var pace = ""
+    if (pooled.remaining >= 0 && elapsed >= 0) {
+        var delta = Math.round((pooled.remaining - (1 - elapsed)) * 100)
+        pace = delta > 0 ? "ahead " + delta + "pp"
+            : delta < 0 ? "behind " + Math.abs(delta) + "pp" : "on pace"
+    }
+    return {
+        label: windowLabel(pooled),
+        quota: pooled,
+        remaining: pooled.remaining,
+        elapsed: elapsed,
+        marker: elapsed < 0 ? -1 : 1 - elapsed,
+        status: status(pooled.remaining, elapsed),
+        resetText: formatReset(pooled, serverTime),
+        paceText: pace,
+        balanceText: balanceText(pooled),
+        available: remainingCount > 0,
+        matchCount: quotas.length,
+        availableCount: remainingCount
+    }
+}
+
+function buildSummary(accounts, serverTime) {
+    var groups = []
+    var byId = {}
+
+    for (var i = 0; i < (accounts || []).length; i++) {
+        var account = accounts[i]
+        if (!account || account.active === false) continue
+        var accountQuotas = {}
+        for (var j = 0; j < (account.quotas || []).length; j++) {
+            var quota = account.quotas[j]
+            var family = quotaFamily(account, quota)
+            var id = providerKey(family)
+            var group = byId[id]
+            if (!group) {
+                group = {
+                    id: id,
+                    title: family,
+                    accountCount: 0,
+                    windows: [],
+                    errors: [],
+                    warnings: []
+                }
+                byId[id] = group
+                groups.push(group)
+            }
+            if (!accountQuotas[id]) {
+                group.accountCount += 1
+                accountQuotas[id] = true
+            }
+            var seconds = windowSec(quota)
+            var windowId = seconds === null ? String(quota.key || quota.label) : String(seconds)
+            var windows = group.windowMap || (group.windowMap = {})
+            if (!windows[windowId]) windows[windowId] = []
+            windows[windowId].push(quota)
+        }
+        var ownGroups = {}
+        for (var quotaKey in accountQuotas) ownGroups[quotaKey] = true
+        for (var groupId in ownGroups) {
+            if (account.lastError) byId[groupId].errors.push(account.lastError)
+            if (account.lastWarning) byId[groupId].warnings.push(account.lastWarning)
+        }
+    }
+
+    groups.sort(function (a, b) {
+        var rank = providerRank(a.title) - providerRank(b.title)
+        return rank !== 0 ? rank : a.title.localeCompare(b.title)
+    })
+    for (var g = 0; g < groups.length; g++) {
+        var item = groups[g]
+        for (var key in item.windowMap) {
+            item.windows.push(pooledWindow(item.windowMap[key], serverTime))
+        }
+        item.windows.sort(function (a, b) {
+            var rank = quotaRank(a.quota) - quotaRank(b.quota)
+            return rank !== 0 ? rank : a.label.localeCompare(b.label)
         })
-        for (var a = 0; a < section.accounts.length; a++) {
-            var account = section.accounts[a]
-            rows.push({
-                kind: "account",
-                account: account,
-                showLabel: account.label !== section.title || section.accounts.length > 1
-            })
-            if (account.lastError) {
-                rows.push({ kind: "error", text: account.lastError })
-            }
-            if (account.lastWarning) {
-                rows.push({ kind: "warning", text: account.lastWarning })
-            }
-            for (var q = 0; q < account.quotas.length; q++) {
-                rows.push({ kind: "quota", quota: account.quotas[q], account: account })
-            }
+        delete item.windowMap
+    }
+    return groups
+}
+
+function buildRows(groups) {
+    var rows = []
+    for (var i = 0; i < (groups || []).length; i++) {
+        var group = groups[i]
+        rows.push({ kind: "summary", group: group })
+        for (var e = 0; e < group.errors.length; e++) {
+            rows.push({ kind: "error", text: group.errors[e] })
+        }
+        for (var w = 0; w < group.warnings.length; w++) {
+            rows.push({ kind: "warning", text: group.warnings[w] })
         }
     }
     return rows
 }
 
-function buildSections(accounts) {
-    var active = []
-    var i
-    var j
-    for (i = 0; i < (accounts || []).length; i++) {
-        var account = accounts[i]
-        if (!account || account.active === false) continue
-        active.push(account)
-    }
-
-    active.sort(function (a, b) {
-        var pa = providerRank(a.provider)
-        var pb = providerRank(b.provider)
-        if (pa !== pb) return pa - pb
-        return String(a.label || "").localeCompare(String(b.label || ""))
-    })
-
-    var sections = []
-    for (i = 0; i < active.length; i++) {
-        var current = active[i]
-        var section = null
-        for (j = 0; j < sections.length; j++) {
-            if (sections[j].title === current.provider) {
-                section = sections[j]
-                break
-            }
-        }
-        if (!section) {
-            section = { title: current.provider || "Other", accounts: [] }
-            sections.push(section)
-        }
-
-        var quotas = []
-        for (j = 0; j < (current.quotas || []).length; j++) quotas.push(current.quotas[j])
-        quotas.sort(function (a, b) {
-            var ra = quotaRank(a)
-            var rb = quotaRank(b)
-            if (ra !== rb) return ra - rb
-            return String(a.label || a.key || "").localeCompare(String(b.label || b.key || ""))
-        })
-
-        section.accounts.push({
-            key: current.accountKey,
-            label: current.label,
-            provider: current.provider,
-            active: current.active,
-            lastSuccessAt: current.lastSuccessAt,
-            lastError: current.lastError,
-            lastWarning: current.lastWarning,
-            stale: current.stale,
-            refreshing: current.refreshing,
-            quotas: quotas
-        })
-    }
-    return sections
-}
-
-function betterQuota(candidate, candidateAccount, current, currentAccount) {
-    var a = number(candidate.remaining)
-    var b = number(current.remaining)
-    if (isNaN(a)) return false
-    if (isNaN(b)) return true
-    if (a !== b) return a < b
-    return String(candidateAccount.label || "").localeCompare(String(currentAccount.label || "")) < 0
-}
-
-function emptySeries(selector) {
-    var colon = selector.indexOf(":")
-    var key = colon > 0 ? selector.substring(colon + 1).trim() : selector
-    return {
-        id: selector,
-        label: shortLabel({ key: key, label: key }),
-        quotaKey: key,
-        quotaLabel: key,
-        accountKey: "",
-        accountLabel: "",
-        provider: colon > 0 ? selector.substring(0, colon).trim() : "",
-        remaining: -1,
-        elapsed: -1,
-        marker: -1,
-        status: "unknown",
-        resetText: "",
-        paceText: "",
-        balanceText: "",
-        available: false,
-        matchCount: 0
-    }
-}
-
-function providerKey(value) {
-    return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "")
-}
-
-function selectSeries(accounts, selectors, serverTime) {
+function compactSummary(groups) {
     var result = []
-    var raw = typeof selectors === "string" ? selectors.split(",") : (selectors || [])
-
-    for (var s = 0; s < raw.length; s++) {
-        var selector = String(raw[s] || "").trim()
-        if (!selector) continue
-
-        var colon = selector.indexOf(":")
-        if (colon <= 0) {
-            result.push(emptySeries(selector))
-            continue
-        }
-
-        var provider = selector.substring(0, colon).trim()
-        var quotaKey = selector.substring(colon + 1).trim()
+    for (var i = 0; i < (groups || []).length; i++) {
+        var group = groups[i]
         var chosen = null
-        var matchCount = 0
-
-        for (var i = 0; i < (accounts || []).length; i++) {
-            var account = accounts[i]
-            if (!account || account.active === false) continue
-            if (provider !== "*" &&
-                    providerKey(account.provider) !== providerKey(provider)) {
-                continue
-            }
-
-            for (var j = 0; j < (account.quotas || []).length; j++) {
-                var quota = account.quotas[j]
-                if (!quota || quota.key !== quotaKey) continue
-                matchCount += 1
-                if (chosen === null || betterQuota(quota, account, chosen.quota, chosen.account)) {
-                    chosen = { quota: quota, account: account }
-                }
+        for (var j = 0; j < group.windows.length; j++) {
+            var candidate = group.windows[j]
+            var seconds = windowSec(candidate.quota)
+            if (chosen === null || (seconds !== null && seconds > windowSec(chosen.quota))) {
+                chosen = candidate
             }
         }
-
-        if (chosen === null) {
-            result.push(emptySeries(selector))
-            continue
-        }
-
-        var remaining = number(chosen.quota.remaining)
-        var elapsed = elapsedFraction(chosen.quota, serverTime)
+        if (chosen === null) continue
         result.push({
-            id: selector,
-            label: shortLabel(chosen.quota),
-            quotaKey: chosen.quota.key,
-            quotaLabel: chosen.quota.label,
-            accountKey: chosen.account.accountKey,
-            accountLabel: chosen.account.label,
-            provider: chosen.account.provider,
-            remaining: isNaN(remaining) ? -1 : remaining,
-            elapsed: elapsed,
-            marker: elapsed < 0 ? -1 : 1 - elapsed,
-            status: status(remaining, elapsed),
-            resetText: formatReset(chosen.quota, serverTime),
-            paceText: paceText(chosen.quota, serverTime),
-            balanceText: balanceText(chosen.quota),
-            available: !isNaN(remaining) && remaining >= 0,
-            matchCount: matchCount
+            label: group.title,
+            remaining: chosen.remaining,
+            marker: chosen.marker,
+            status: chosen.status,
+            available: chosen.available,
+            paceText: chosen.paceText,
+            matchCount: group.accountCount,
+            availableCount: chosen.availableCount
         })
     }
     return result
@@ -395,11 +451,12 @@ function compactTooltip(series) {
             continue
         }
         var text = item.label + " " + formatPct(item.remaining)
-        if (item.matchCount > 1) text += " (worst of " + item.matchCount + ")"
+        if (item.matchCount > 1) text += " (pooled across " + item.matchCount + ")"
+        if (item.availableCount < item.matchCount) text += ", incomplete"
         if (item.paceText) text += ", " + item.paceText
         parts.push(text)
     }
-    return parts.join(" · ")
+    return parts.join("\n")
 }
 
 function issueCount(accounts) {

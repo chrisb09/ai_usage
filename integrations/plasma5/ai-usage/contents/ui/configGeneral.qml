@@ -9,7 +9,6 @@ Item {
     property alias cfg_baseUrl: baseUrlField.text
     property alias cfg_credentialCommand: credentialField.text
     property alias cfg_refreshIntervalSec: intervalSpin.value
-    property alias cfg_compactQuotas: quotasField.text
     property alias cfg_barWidth: barWidthSpin.value
 
     ColumnLayout {
@@ -51,26 +50,6 @@ Item {
         PlasmaComponents3.Label {
             Layout.fillWidth: true
             text: i18n("The command must print one line: base64(username:password), or a complete Basic header. The default reads the Secret Service/KWallet. Run scripts/setup-kwallet.sh once to create the entry.")
-            font: PlasmaCore.Theme.smallestFont
-            opacity: 0.65
-            wrapMode: Text.WordWrap
-        }
-
-        PlasmaComponents3.Label {
-            Layout.topMargin: PlasmaCore.Units.smallSpacing
-            text: i18n("Panel quotas")
-            font.bold: true
-        }
-
-        PlasmaComponents3.TextField {
-            id: quotasField
-            Layout.fillWidth: true
-            placeholderText: "google:claude-weekly,codex:codex-weekly"
-        }
-
-        PlasmaComponents3.Label {
-            Layout.fillWidth: true
-            text: i18n("Comma-separated provider:quotaKey pairs. For Google accounts, the widget shows the account with the least remaining quota in that pool. The full popup always shows every account.")
             font: PlasmaCore.Theme.smallestFont
             opacity: 0.65
             wrapMode: Text.WordWrap

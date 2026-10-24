@@ -16,9 +16,6 @@
       <min>15</min>
       <max>3600</max>
     </entry>
-    <entry name="compactQuotas" type="String">
-      <default>google:claude-weekly,codex:codex-weekly,opencode-go:opencode-go-monthly,oneprovider:oneprovider,vnai-pro:vnai-pro</default>
-    </entry>
     <entry name="barWidth" type="Int">
       <default>72</default>
       <min>40</min>

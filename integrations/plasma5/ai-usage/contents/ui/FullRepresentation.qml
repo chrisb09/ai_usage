@@ -20,12 +20,12 @@ PlasmaExtras.Representation {
 
     Layout.minimumWidth: PlasmaCore.Units.gridUnit * 19
     Layout.minimumHeight: PlasmaCore.Units.gridUnit * 15
-    Layout.preferredWidth: PlasmaCore.Units.gridUnit * 23
+    Layout.preferredWidth: PlasmaCore.Units.gridUnit * 26
     Layout.preferredHeight: PlasmaCore.Units.gridUnit * 24
     Layout.maximumWidth: PlasmaCore.Units.gridUnit * 34
     Layout.maximumHeight: PlasmaCore.Units.gridUnit * 44
 
-    implicitWidth: PlasmaCore.Units.gridUnit * 23
+    implicitWidth: PlasmaCore.Units.gridUnit * 26
     implicitHeight: PlasmaCore.Units.gridUnit * 24
 
     collapseMarginsHint: true
@@ -123,8 +123,6 @@ PlasmaExtras.Representation {
 
                         sourceComponent: {
                             if (!modelData) return null
-                            if (modelData.kind === "section") return sectionComponent
-                            if (modelData.kind === "account") return accountComponent
                             if (modelData.kind === "error") return errorComponent
                             if (modelData.kind === "warning") return warningComponent
                             return quotaComponent
@@ -163,7 +161,7 @@ PlasmaExtras.Representation {
 
                                 PlasmaComponents3.Label {
                                     Layout.fillWidth: true
-                                    text: i18n("Fill = remaining · dashed line = time remaining")
+                                    text: i18n("Fill = pooled quota · line = average time remaining")
                                     textFormat: Text.PlainText
                                     font: PlasmaCore.Theme.smallestFont
                                     opacity: 0.65
@@ -194,67 +192,6 @@ PlasmaExtras.Representation {
                 textFormat: Text.PlainText
                 font: PlasmaCore.Theme.smallestFont
                 opacity: 0.7
-            }
-        }
-    }
-
-    Component {
-        id: sectionComponent
-
-        Item {
-            id: sectionRow
-            property var rowData
-
-            implicitHeight: sectionLabel.implicitHeight + 8
-
-            PlasmaComponents3.Label {
-                id: sectionLabel
-                y: 8
-                width: sectionRow.width
-                text: sectionRow.rowData ? sectionRow.rowData.title : ""
-                textFormat: Text.PlainText
-                font.bold: true
-                opacity: 0.9
-            }
-        }
-    }
-
-    Component {
-        id: accountComponent
-
-        Item {
-            id: accountRow
-            property var rowData
-
-            readonly property bool showLabel: rowData ? rowData.showLabel : false
-            implicitHeight: showLabel ? accountHeader.implicitHeight : 0
-
-            RowLayout {
-                id: accountHeader
-                width: accountRow.width
-                visible: accountRow.showLabel
-                spacing: full.rowMargin
-
-                PlasmaComponents3.Label {
-                    Layout.fillWidth: true
-                    text: accountRow.rowData ? accountRow.rowData.account.label : ""
-                    textFormat: Text.PlainText
-                    font.bold: true
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                }
-
-                PlasmaComponents3.Label {
-                    text: accountRow.rowData
-                        ? Usage.accountStatus(accountRow.rowData.account)
-                        : ""
-                    visible: text.length > 0
-                    textFormat: Text.PlainText
-                    font: PlasmaCore.Theme.smallestFont
-                    color: accountRow.rowData && accountRow.rowData.account.lastError
-                        ? Usage.COLOR_CRITICAL
-                        : Usage.COLOR_WARNING
-                }
             }
         }
     }
@@ -311,9 +248,7 @@ PlasmaExtras.Representation {
         QuotaRow {
             property var rowData
 
-            quota: rowData ? rowData.quota : null
-            account: rowData ? rowData.account : null
-            serverTime: full.applet ? full.applet.serverTime : ""
+            group: rowData ? rowData.group : null
         }
     }
 }
