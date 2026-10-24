@@ -158,6 +158,11 @@ describe("MCP endpoint", () => {
         (quota: { key: string }) => quota.key === "gemini-weekly",
       ).remainingPct,
     ).toBe(75)
+    expect(
+      overviewPayload.accounts[0].quotas.find(
+        (quota: { key: string }) => quota.key === "gemini-weekly",
+      ).windowSec,
+    ).toBe(604_800)
 
     const history = await rpc(url, {
       jsonrpc: "2.0",

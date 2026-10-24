@@ -80,6 +80,7 @@ describe("HTTP API", () => {
     expect(body.accounts[0].accountKey).toBe(ref.accountKey)
     expect(body.accounts[0].active).toBe(true)
     expect(body.accounts[0].quotas[0].remaining).toBeCloseTo(0.75)
+    expect(body.accounts[0].quotas[0].windowSec).toBe(604_800)
     expect(body.policy.minIntervalSec).toBe(600)
   })
 

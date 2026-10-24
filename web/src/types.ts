@@ -3,6 +3,7 @@ export interface Quota {
   label: string
   remaining: number | null
   resetAt: string | null
+  windowSec?: number | null
   raw?: Record<string, unknown> | null
 }
 

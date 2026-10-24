@@ -10,6 +10,7 @@ import type {
   Trigger,
 } from "./domain.js"
 import type { StateUpdate } from "./policy.js"
+import { quotaWindowSec } from "./quota-window.js"
 
 interface AccountDbRow {
   account_key: string
@@ -630,7 +631,10 @@ export class UsageDatabase {
         provider: account.provider,
         label: account.label,
         active: account.active === 1,
-        quotas: quotas.get(account.account_key) ?? [],
+        quotas: (quotas.get(account.account_key) ?? []).map((quota) => ({
+          ...quota,
+          windowSec: quotaWindowSec(quota),
+        })),
         lastAttemptAt: state?.lastAttemptAt ?? null,
         lastSuccessAt: state?.lastSuccessAt ?? null,
         lastChangeAt: state?.lastChangeAt ?? null,

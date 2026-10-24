@@ -36,6 +36,9 @@ Supported providers:
 - **MCP for opencode** — a stateless Streamable HTTP endpoint at `/mcp` exposes
   compact `usage_overview`, `usage_history`, and `refresh_usage` tools to
   opencode and other MCP clients.
+- **Plasma 5 panel widget** — a native panel widget renders the selected quotas
+  as stacked bars, with a dashed time-remaining marker and a native details
+  popup. See [integrations/plasma5](integrations/plasma5/ai-usage/README.md).
 - **Secret-safe output** — API responses and logs never include tokens, cookies,
   API keys, or client secrets.
 

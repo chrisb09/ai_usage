@@ -54,6 +54,7 @@ export function summarizeQuotaSummary(summary: unknown): Quota[] {
       const window = asString(bucket?.window) || ""
       const combo = `${window} ${bucketId} ${displayName}`.toLowerCase()
       const isWeekly = combo.includes("weekly")
+      const windowSec = isWeekly ? 7 * 86_400 : 5 * 3_600
 
       const remainingRecord = asRecord(bucket?.remaining)
       const remaining = clampFraction(
@@ -69,7 +70,7 @@ export function summarizeQuotaSummary(summary: unknown): Quota[] {
         label,
         remaining,
         resetAt,
-        raw: { description, modelCount: 1 },
+        raw: { description, modelCount: 1, window, windowSec },
       })
     }
   }

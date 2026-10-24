@@ -133,6 +133,7 @@ export function parseCodexUsage(data: unknown, now = new Date()): Quota[] {
     usedKeys.add(key)
 
     const usedPercent = asNumber(window.used_percent) ?? 0
+    const windowSec = asNumber(window.limit_window_seconds)
     quotas.push({
       key,
       label,
@@ -140,6 +141,7 @@ export function parseCodexUsage(data: unknown, now = new Date()): Quota[] {
       resetAt: windowResetAt(window, now),
       raw: {
         window: label,
+        windowSec,
         usedPercent,
         resetAfterSeconds: asNumber(window.reset_after_seconds),
       },

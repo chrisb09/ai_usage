@@ -1,0 +1,18 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Name": "Christian Brinkmann"
+      }
+    ],
+    "Category": "System Information",
+    "Description": "Panel bars for AI quota usage, balances, and reset timing",
+    "Icon": "office-chart-bar",
+    "Id": "org.chrisb09.aiusage",
+    "License": "MIT",
+    "Name": "AI Usage",
+    "Version": "0.1.0"
+  },
+  "X-Plasma-API": "declarativeappletscript",
+  "X-Plasma-MainScript": "ui/main.qml"
+}

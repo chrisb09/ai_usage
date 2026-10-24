@@ -33,6 +33,7 @@ function compactQuota(quota: Quota): Record<string, unknown> {
     remainingPct: percent(quota.remaining),
     resetAt: quota.resetAt,
   }
+  if (typeof quota.windowSec === "number") result.windowSec = quota.windowSec
   const balance = quota.raw?.balanceUsd
   const budget = quota.raw?.quotaUsd
   if (typeof balance === "number" && Number.isFinite(balance)) result.balanceUsd = balance

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="baseUrl" type="String">
+      <default>https://usage.christian-f-brinkmann.de</default>
+    </entry>
+    <entry name="credentialCommand" type="String">
+      <default>secret-tool lookup service ai-usage entry basic</default>
+    </entry>
+    <entry name="refreshIntervalSec" type="Int">
+      <default>60</default>
+      <min>15</min>
+      <max>3600</max>
+    </entry>
+    <entry name="compactQuotas" type="String">
+      <default>google:claude-weekly,codex:codex-weekly,opencode-go:opencode-go-monthly,oneprovider:oneprovider,vnai-pro:vnai-pro</default>
+    </entry>
+    <entry name="barWidth" type="Int">
+      <default>72</default>
+      <min>40</min>
+      <max>120</max>
+    </entry>
+  </group>
+</kcfg>

@@ -29,6 +29,11 @@ describe("OpenCode Go parser", () => {
     expect(quotas[1]?.remaining).toBeCloseTo(0.66)
     expect(quotas[2]?.remaining).toBeCloseTo(0.88)
     expect(quotas[1]?.resetAt).toBe("2026-10-22T14:00:00.000Z")
+    expect(quotas.map((quota) => quota.raw?.windowSec)).toEqual([
+      2_592_000,
+      604_800,
+      18_000,
+    ])
   })
 
   it("rejects missing subscription access", () => {
@@ -61,6 +66,8 @@ describe("Codex parser", () => {
     expect(quotas[0]?.remaining).toBeCloseTo(0.75)
     expect(quotas[1]?.remaining).toBeCloseTo(0.9)
     expect(quotas[1]?.resetAt).toBe("2027-01-15T08:00:00.000Z")
+    expect(quotas[0]?.raw?.windowSec).toBe(18_000)
+    expect(quotas[1]?.raw?.windowSec).toBe(604_800)
   })
 
   it("returns an empty list without a rate limit", () => {
@@ -106,8 +113,10 @@ describe("Antigravity parsers", () => {
     expect(quotas[0]?.label).toBe("Gemini — Weekly")
     expect(quotas[0]?.remaining).toBeCloseTo(0.8)
     expect(quotas[0]?.resetAt).toBe("2026-10-28T00:00:00.000Z")
+    expect(quotas[0]?.raw?.windowSec).toBe(604_800)
     expect(quotas[1]?.label).toBe("Claude — 5h")
     expect(quotas[1]?.remaining).toBeCloseTo(0.4)
+    expect(quotas[1]?.raw?.windowSec).toBe(18_000)
   })
 
   it("falls back to the model list", () => {

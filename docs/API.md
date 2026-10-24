@@ -113,9 +113,11 @@ Account view fields:
 | `stale` | `true` when data is older than the maximum interval |
 | `refreshing` | `true` while this account is being checked |
 
-Quota fields: `key`, `label`, `remaining`, `resetAt`, and an optional `raw`
-object. API key providers include `raw.balanceUsd`, `raw.quotaUsd`,
-`raw.usedUsd`, and `raw.expiresAt`.
+Quota fields: `key`, `label`, `remaining`, `resetAt`, `windowSec`, and an
+optional `raw` object. `windowSec` is the length of the quota window in seconds
+(for example `604800` for a weekly limit or `18000` for a 5-hour limit); it is
+`null` for balance-style quotas with no rolling window. API key providers include
+`raw.balanceUsd`, `raw.quotaUsd`, `raw.usedUsd`, and `raw.expiresAt`.
 
 ```bash
 curl -su 'username:password' https://usage.christian-f-brinkmann.de/api/usage \
