@@ -34,15 +34,15 @@ export function parseOpenCodeGoStatus(data: unknown): Quota[] {
   for (const [name, window] of [["month", "Monthly"], ["week", "Weekly"], ["fiveHour", "5h"]] as const) {
     const meter = asRecord(meters?.[name])
     if (!meter) continue
-    const used = meterNumber(meter.usedMicroCents ?? 0)
+    const used = meterNumber(meter.usedMicroCents)
     const limit = meterNumber(meter.limitMicroCents)
-    if (used === null || limit === null) throw new Error(`Invalid OpenCode Go ${window.toLowerCase()} usage meter`)
+    if ((used === null && meter.usedMicroCents != null) || limit === null) throw new Error(`Invalid OpenCode Go ${window.toLowerCase()} usage meter`)
     const label = `OpenCode Go — ${window}`
     const windowSec = name === "month" ? 30 * 86_400 : name === "week" ? 7 * 86_400 : 5 * 3_600
     quotas.push({
       key: quotaKey(label),
       label,
-      remaining: limit > 0 ? clampFraction((limit - used) / limit) : 0,
+      remaining: used === null ? null : limit > 0 ? clampFraction((limit - used) / limit) : 0,
       resetAt: isoDate(meter.resetsAt) ?? (name === "month" ? isoDate(access.endsAt) : null),
       raw: { usedMicroCents: used, limitMicroCents: limit, windowSec },
     })

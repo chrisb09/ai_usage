@@ -132,12 +132,12 @@ export function parseCodexUsage(data: unknown, now = new Date()): Quota[] {
     if (usedKeys.has(key)) key = `${key}-${role}`
     usedKeys.add(key)
 
-    const usedPercent = asNumber(window.used_percent) ?? 0
+    const usedPercent = asNumber(window.used_percent)
     const windowSec = asNumber(window.limit_window_seconds)
     quotas.push({
       key,
       label,
-      remaining: clampFraction((100 - usedPercent) / 100),
+      remaining: usedPercent === null ? null : clampFraction((100 - usedPercent) / 100),
       resetAt: windowResetAt(window, now),
       raw: {
         window: label,
