@@ -131,8 +131,8 @@ PlasmaExtras.Representation {
                         }
 
                         onLoaded: {
-                            item.rowData = modelData
-                            item.width = Qt.binding(function () { return rowLoader.width - 2 * full.rowMargin - 10 })
+                            item.rowData = Qt.binding(function () { return modelData })
+                            item.width = Qt.binding(function () { return rowLoader.width - 2 * full.rowMargin - 16 })
                             item.x = full.rowMargin
                         }
                     }
@@ -145,7 +145,7 @@ PlasmaExtras.Representation {
                             id: footerColumn
                             x: full.rowMargin
                             y: full.rowMargin
-                            width: parent.width - 2 * full.rowMargin - 10
+                            width: parent.width - 2 * full.rowMargin - 16
                             spacing: PlasmaCore.Units.smallSpacing
 
                             RowLayout {
