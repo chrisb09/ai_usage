@@ -307,17 +307,20 @@ it as a remote MCP server; it is protected by the same Basic Auth:
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "ai-usage": {
-      "type": "remote",
-      "url": "https://usage.christian-f-brinkmann.de/mcp",
-      "oauth": false,
-      "headers": { "Authorization": "Basic {env:AI_USAGE_BASIC}" }
+    "servers": {
+      "ai-usage": {
+        "type": "remote",
+        "url": "https://usage.christian-f-brinkmann.de/mcp",
+        "oauth": false,
+        "headers": { "Authorization": "Basic {env:AI_USAGE_BASIC}" }
+      }
     }
   }
 }
 ```
 
-Set `AI_USAGE_BASIC` to `base64(username:password)` and see
+Set `AI_USAGE_BASIC` to `base64(username:password)` in the environment that
+starts the OpenCode service. See
 [docs/API.md](docs/API.md#mcp-endpoint) for the tools and details.
 
 ### `GET /api/usage`

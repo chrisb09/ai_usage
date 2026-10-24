@@ -218,12 +218,14 @@ Set the result as `AI_USAGE_BASIC`, then add this to `opencode.json` or
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "ai-usage": {
-      "type": "remote",
-      "url": "https://usage.christian-f-brinkmann.de/mcp",
-      "oauth": false,
-      "headers": {
-        "Authorization": "Basic {env:AI_USAGE_BASIC}"
+    "servers": {
+      "ai-usage": {
+        "type": "remote",
+        "url": "https://usage.christian-f-brinkmann.de/mcp",
+        "oauth": false,
+        "headers": {
+          "Authorization": "Basic {env:AI_USAGE_BASIC}"
+        }
       }
     }
   }
@@ -231,8 +233,18 @@ Set the result as `AI_USAGE_BASIC`, then add this to `opencode.json` or
 ```
 
 `oauth` must be `false`; otherwise opencode may try its OAuth flow when the
-proxy returns `401`. The tools are then available as `ai-usage_*` in prompts,
-for example: *"Use ai-usage_usage_overview to find quotas below 20%."*
+proxy returns `401`. Set `AI_USAGE_BASIC` in the environment that starts the
+OpenCode service, then check the connection:
+
+```bash
+export AI_USAGE_BASIC="$(printf '%s' 'username:password' | base64)"
+opencode mcp list
+```
+
+Config changes apply without a restart, but an environment change requires the
+background service to be restarted so it inherits the variable. The tools are
+then available as `ai-usage_*` in prompts, for example:
+*"Use ai-usage_usage_overview to find quotas below 20%."*
 
 Direct JSON-RPC example:
 
