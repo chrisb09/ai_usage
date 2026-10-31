@@ -5,7 +5,12 @@ interface WindowedQuota {
 }
 
 export function isApiKeyProvider(provider: string): boolean {
-  return provider === "OneProvider" || provider === "VNAI Pro"
+  return (
+    provider === "OneProvider" ||
+    provider === "OpenRouter" ||
+    provider === "VNAI Pro" ||
+    provider === "Google Cloud"
+  )
 }
 
 export function overviewPool(provider: string, quota: WindowedQuota): string {

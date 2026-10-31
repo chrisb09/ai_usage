@@ -43,6 +43,8 @@ const envSchema = z.object({
   ONEPROVIDER_CONFIG_PATH: optionalString,
   OPENCODE_AUTH_PATH: optionalString,
   VNAI_PRO_AUTH_PATH: optionalString,
+  GCP_BILLING_CONFIG_PATH: optionalString,
+  HIDDEN_PROVIDERS: optionalString,
   CODEX_AUTH_PATH: optionalString,
   CODEX_REFRESH: boolStringDefaultTrue,
   CODEX_CLIENT_ID: optionalString,
@@ -68,6 +70,7 @@ export interface CredentialPaths {
   opencodeAuth: string
   vnaiProAuth: string
   codexAuth: string
+  gcpBillingConfig: string
 }
 
 export interface AppConfig {
@@ -80,6 +83,7 @@ export interface AppConfig {
   concurrency: number
   requestTimeoutMs: number
   includeDisabled: boolean
+  hiddenProviders: string[]
   antigravityClientSecret: string | undefined
   codexRefresh: boolean
   codexClientId: string | undefined
@@ -130,6 +134,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     concurrency: parsed.CONCURRENCY,
     requestTimeoutMs: parsed.REQUEST_TIMEOUT_MS,
     includeDisabled: parsed.INCLUDE_DISABLED,
+    hiddenProviders: (parsed.HIDDEN_PROVIDERS ?? "")
+      .split(",")
+      .map((provider) => provider.trim())
+      .filter((provider) => provider.length > 0),
     antigravityClientSecret: parsed.ANTIGRAVITY_CLIENT_SECRET,
     codexRefresh: parsed.CODEX_REFRESH,
     codexClientId: parsed.CODEX_CLIENT_ID,
@@ -154,6 +162,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       opencodeAuth: parsed.OPENCODE_AUTH_PATH || opencodeAuthPath(env),
       vnaiProAuth: parsed.VNAI_PRO_AUTH_PATH || parsed.OPENCODE_AUTH_PATH || opencodeAuthPath(env),
       codexAuth: parsed.CODEX_AUTH_PATH || join(codexDir, "auth.json"),
+      gcpBillingConfig: parsed.GCP_BILLING_CONFIG_PATH || join(opencodeDir, "gcp-billing.json"),
     },
   }
+}
+
+export function isHiddenProvider(config: AppConfig, provider: string): boolean {
+  return config.hiddenProviders.some(
+    (hidden) => hidden.toLowerCase() === provider.toLowerCase(),
+  )
 }

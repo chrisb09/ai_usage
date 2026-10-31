@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
-import type { AppConfig } from "./config.js"
+import { isHiddenProvider, type AppConfig } from "./config.js"
 import type { UsageDatabase } from "./db.js"
 import { maskAccount, sanitizeError, toPublicAccountKey } from "./mask.js"
 import { isStale } from "./policy.js"
@@ -55,6 +55,15 @@ function badRequest(message: string): { error: { code: string; message: string }
   return { error: { code: "invalid_request", message } }
 }
 
+function hiddenAccountKeys(config: AppConfig, db: UsageDatabase): Set<string> {
+  return new Set(
+    db
+      .getAccounts()
+      .filter((account) => isHiddenProvider(config, account.provider))
+      .map((account) => account.account_key),
+  )
+}
+
 export function registerApi(
   app: FastifyInstance,
   deps: {
@@ -67,14 +76,16 @@ export function registerApi(
 
   app.get("/api/usage", async () => {
     const now = new Date()
-    const views = db.buildViews({
+    const allViews = db.buildViews({
       refreshing: (accountKey) => scheduler.isRefreshing(accountKey),
       isStale: (lastSuccessAt) =>
         isStale(lastSuccessAt, config.policy.maxIntervalSec, now),
     })
+    const hidden = hiddenAccountKeys(config, db)
+    const views = allViews.filter((view) => !hidden.has(view.accountKey))
 
     const discovered = new Set(scheduler.getDiscoveredAccountKeys())
-    const hasDue = views.some((view) => {
+    const hasDue = allViews.some((view) => {
       if (!view.active || !discovered.has(view.accountKey)) return false
       if (!view.nextCheckAt) return true
       const next = Date.parse(view.nextCheckAt)
@@ -111,14 +122,16 @@ export function registerApi(
     },
     async () => {
       const now = new Date()
-      const views = db.buildViews({
+      const allViews = db.buildViews({
         refreshing: (accountKey) => scheduler.isRefreshing(accountKey),
         isStale: (lastSuccessAt) =>
           isStale(lastSuccessAt, config.policy.maxIntervalSec, now),
       })
+      const hidden = hiddenAccountKeys(config, db)
+      const views = allViews.filter((view) => !hidden.has(view.accountKey))
 
       const discovered = new Set(scheduler.getDiscoveredAccountKeys())
-      const hasDue = views.some((view) => {
+      const hasDue = allViews.some((view) => {
         if (!view.active || !discovered.has(view.accountKey)) return false
         if (!view.nextCheckAt) return true
         const next = Date.parse(view.nextCheckAt)
@@ -164,6 +177,10 @@ export function registerApi(
     try {
       const from = parseDate(parsed.data.from, "from")
       const to = parseDate(parsed.data.to, "to")
+      const hidden = hiddenAccountKeys(config, db)
+      const hiddenRequest = parsed.data.accountKey
+        ? hidden.has(parsed.data.accountKey)
+        : false
       const earliest =
         from ??
         db.getEarliestCheckAt({
@@ -176,14 +193,18 @@ export function registerApi(
           ? parsed.data.bucketSec
           : autoBucketSec(earliest, to)
 
-      const points = db.getHistory({
-        accountKey: parsed.data.accountKey,
-        quotaKey: parsed.data.quotaKey,
-        from,
-        to,
-        bucketSec,
-        limit: parsed.data.limit,
-      })
+      const points = hiddenRequest
+        ? []
+        : db
+            .getHistory({
+              accountKey: parsed.data.accountKey,
+              quotaKey: parsed.data.quotaKey,
+              from,
+              to,
+              bucketSec,
+              limit: parsed.data.limit,
+            })
+            .filter((point) => !hidden.has(point.accountKey))
 
       return {
         points,
@@ -218,6 +239,7 @@ export function registerApi(
       try {
         const from = parseDate(parsed.data.from, "from")
         const to = parseDate(parsed.data.to, "to")
+        const hidden = hiddenAccountKeys(config, db)
 
         let realAccountKey: string | undefined = undefined
         if (parsed.data.accountKey) {
@@ -225,7 +247,7 @@ export function registerApi(
           const matched = accounts.find(
             (acc) => toPublicAccountKey(acc.account_key) === parsed.data.accountKey,
           )
-          if (matched) {
+          if (matched && !hidden.has(matched.account_key)) {
             realAccountKey = matched.account_key
           } else {
             return {
@@ -258,10 +280,12 @@ export function registerApi(
           limit: parsed.data.limit,
         })
 
-        const publicPoints = points.map((point) => ({
-          ...point,
-          accountKey: toPublicAccountKey(point.accountKey),
-        }))
+        const publicPoints = points
+          .filter((point) => !hidden.has(point.accountKey))
+          .map((point) => ({
+            ...point,
+            accountKey: toPublicAccountKey(point.accountKey),
+          }))
 
         return {
           points: publicPoints,
@@ -299,10 +323,13 @@ export function registerApi(
       const accountKeys = parsed.data?.accountKeys ?? null
       const trigger: Extract<Trigger, "manual"> = "manual"
       const summary = await scheduler.refresh(accountKeys, trigger)
+      const hidden = hiddenAccountKeys(config, db)
 
       return {
-        refreshed: summary.refreshed,
-        skipped: summary.skipped,
+        refreshed: summary.refreshed.filter(
+          (result) => !hidden.has(result.accountKey),
+        ),
+        skipped: summary.skipped.filter((skip) => !hidden.has(skip.accountKey)),
       }
     },
   )

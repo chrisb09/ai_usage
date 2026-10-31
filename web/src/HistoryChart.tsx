@@ -53,6 +53,8 @@ function providerColor(provider: string): string {
       return "#a6e3a1"
     case "OneProvider":
       return "#f38ba8"
+    case "OpenRouter":
+      return "#b4befe"
     case "VNAI Pro":
       return "#94e2d5"
     default:
@@ -262,7 +264,7 @@ export function HistoryChart(props: { accounts: AccountView[] }) {
               onChange={(event) => setSelectedKey(event.target.value)}
             >
               <option value={ALL_PROVIDERS}>All providers</option>
-              <option value={API_KEY_BALANCES}>API key balances</option>
+              <option value={API_KEY_BALANCES}>Credit balances</option>
               {accounts.map((account) => (
                 <option key={account.accountKey} value={account.accountKey}>
                   {account.label} · {account.provider}

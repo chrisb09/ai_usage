@@ -19,6 +19,13 @@ export function needsLogin(error: string | null): boolean {
 }
 
 function quotaHint(quota: Quota): string | null {
+  if (quota.raw?.waitingForData) return "Waiting for billing data"
+  if (quota.raw?.unlimited === true) return "Unlimited key"
+  if (typeof quota.raw?.currency === "string") {
+    const balance = formatMoney(quota.raw.balance, quota.raw.currency)
+    const total = formatMoney(quota.raw.grantAmount, quota.raw.currency)
+    if (balance && total) return `${balance} / ${total}`
+  }
   const balance = formatMoney(quota.raw?.balanceUsd)
   const total = formatMoney(quota.raw?.quotaUsd)
   if (balance && total) return `${balance} / ${total}`
@@ -49,8 +56,12 @@ function QuotaRow(props: { quota: Quota; provider: string; now: number }) {
         <div className={`bar-fill tone-${tone}`} style={{ width: `${width}%` }} />
       </div>
       <div className="quota-meta">
-        {hint && <span>{formatPercent(quota.remaining)} remaining</span>}
-        {quota.resetAt && <span title={formatDateTime(quota.resetAt)}>{hint ? "Expires" : "Reset"} {formatCountdown(quota.resetAt, now)}</span>}
+        {hint && !quota.raw?.waitingForData && <span>{quota.raw?.estimated ? "Estimated · " : ""}{formatPercent(quota.remaining)} remaining</span>}
+        {quota.raw?.waitingForData === true && <span>Starting grant: {formatMoney(quota.raw.grantAmount, String(quota.raw.currency))}</span>}
+        {typeof quota.raw?.used === "number" && <span>Used {formatMoney(quota.raw.used, String(quota.raw.currency))}</span>}
+        {typeof quota.raw?.usedUsd === "number" && <span>Used {formatMoney(quota.raw.usedUsd)}</span>}
+        {typeof quota.raw?.latestExportAt === "string" && <span title={formatDateTime(quota.raw.latestExportAt)}>Billing data {formatRelative(quota.raw.latestExportAt, now)}</span>}
+        {quota.resetAt && <span title={formatDateTime(quota.resetAt)}>{quota.raw?.expired ? "Expired" : hint ? "Expires" : "Reset"} {quota.raw?.expired ? formatDateTime(quota.resetAt) : formatCountdown(quota.resetAt, now)}</span>}
       </div>
     </div>
   )

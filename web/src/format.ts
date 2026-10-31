@@ -40,9 +40,10 @@ export function formatDateTime(value: string | null): string {
   return date.toLocaleString()
 }
 
-export function formatMoney(value: unknown): string | null {
+export function formatMoney(value: unknown, currency = "USD"): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null
-  return `$${value.toFixed(2)}`
+  if (currency === "USD") return `$${value.toFixed(2)}`
+  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value)
 }
 
 export function barTone(value: number | null): "good" | "warn" | "bad" | "unknown" {
@@ -62,6 +63,8 @@ export function providerOrder(provider: string): number {
       return 2
     case "OneProvider":
       return 3
+    case "OpenRouter":
+      return 4
     default:
       return 9
   }

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { loadConfig } from "../src/config.js"
 import { UsageDatabase } from "../src/db.js"
 import type { AccountRef, Quota } from "../src/domain.js"
-import { registerMcp } from "../src/mcp.js"
+import { historySummary, overviewPayload, registerMcp } from "../src/mcp.js"
 import type { UsageScheduler } from "../src/scheduler.js"
 
 const config = loadConfig({
@@ -204,5 +204,38 @@ describe("MCP endpoint", () => {
     expect(response.status).toBe(405)
     expect(response.headers.get("allow")).toBe("POST")
     expect((await response.json()).error.code).toBe(-32000)
+  })
+
+  it("filters hidden providers from overview and history", () => {
+    const db = new UsageDatabase(":memory:")
+    const hidden: AccountRef = {
+      accountKey: "vnai-pro:default",
+      provider: "VNAI Pro",
+      label: "sk-…1234 (VNAI Pro)",
+      collectorId: "vnai-pro",
+    }
+    db.upsertAccount(hidden)
+    db.ensureState(hidden.accountKey, 600)
+    db.insertImportedCheck({
+      ref: hidden,
+      checkedAt: new Date().toISOString(),
+      quotas: [quota("vnai-pro", "VNAI Pro", 0.5)],
+    })
+    cleanup.push(() => db.close())
+
+    const deps = {
+      config: loadConfig({
+        ...process.env,
+        DATABASE_PATH: ":memory:",
+        OPENCODE_CONFIG_DIR: "/nonexistent/opencode",
+        CODEX_HOME: "/nonexistent/codex",
+        HIDDEN_PROVIDERS: "VNAI Pro",
+      }),
+      db,
+      scheduler: { isRefreshing: () => false } as unknown as UsageScheduler,
+    }
+
+    expect(overviewPayload(deps).summary.accounts).toBe(0)
+    expect(historySummary(deps).seriesCount).toBe(0)
   })
 })

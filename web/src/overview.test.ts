@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest"
-import { overviewPool, overviewQuotas, overviewWindow } from "./overview"
+import { isApiKeyProvider, overviewPool, overviewQuotas, overviewWindow } from "./overview"
 
 describe("overview quota selection", () => {
   it("recognizes explicit weekly and monthly limits and excludes short or unspecified windows", () => {
     for (const label of ["Weekly", "7d", "7 days", "7-day limit"]) expect(overviewWindow({ label })).toBe("weekly")
     for (const label of ["Monthly", "30d", "30 days", "30-day limit"]) expect(overviewWindow({ label })).toBe("monthly")
-    for (const label of ["5h", "Daily", "Rolling", "OneProvider", "VNAI Pro"]) expect(overviewWindow({ label })).toBeNull()
+    for (const label of ["5h", "Daily", "Rolling", "OneProvider", "OpenRouter", "VNAI Pro"]) expect(overviewWindow({ label })).toBeNull()
+  })
+
+  it("treats OpenRouter as an API credit balance provider", () => {
+    expect(isApiKeyProvider("OpenRouter")).toBe(true)
+    expect(isApiKeyProvider("OneProvider")).toBe(true)
+    expect(isApiKeyProvider("VNAI Pro")).toBe(true)
   })
 
   it("uses the same long-term-only selection for overview statistics", () => {

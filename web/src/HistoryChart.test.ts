@@ -122,13 +122,15 @@ describe("history chart data", () => {
   it("tracks API credit separately from weekly/monthly overview limits", () => {
     const points = history([
       point("oneprovider:default", "oneprovider", 0.18),
+      point("openrouter:default", "openrouter", 0.34),
       point("vnai-pro:default", "vnai-pro", 0.0044),
       point("codex:default", "codex-weekly", 0.52),
     ])
-    const accounts = [account("oneprovider:default", "OneProvider"), account("vnai-pro:default", "VNAI Pro"), account("codex:default", "Codex")]
+    const accounts = [account("oneprovider:default", "OneProvider"), account("openrouter:default", "OpenRouter"), account("vnai-pro:default", "VNAI Pro"), account("codex:default", "Codex")]
     const balances = buildChart(points, accounts, "__api_keys__")
-    expect(balances.series).toEqual(["OneProvider", "VNAI Pro"])
+    expect(balances.series).toEqual(["OneProvider", "OpenRouter", "VNAI Pro"])
     expect(balances.data[0]?.OneProvider).toBe(18)
+    expect(balances.data[0]?.OpenRouter).toBeCloseTo(34)
     expect(balances.data[0]?.["VNAI Pro"]).toBeCloseTo(0.44)
     expect(balances.balances).toBe(true)
     expect(buildChart(points, accounts, "__all__").series).toEqual(["Codex"])

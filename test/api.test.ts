@@ -5,14 +5,8 @@ import { registerApi } from "../src/api.js"
 import { loadConfig } from "../src/config.js"
 import { UsageDatabase } from "../src/db.js"
 import type { AccountRef } from "../src/domain.js"
+import { toPublicAccountKey } from "../src/mask.js"
 import type { UsageScheduler } from "../src/scheduler.js"
-
-const config = loadConfig({
-  ...process.env,
-  DATABASE_PATH: ":memory:",
-  OPENCODE_CONFIG_DIR: "/nonexistent/opencode",
-  CODEX_HOME: "/nonexistent/codex",
-})
 
 const cleanup: Array<() => Promise<void> | void> = []
 
@@ -22,15 +16,7 @@ afterEach(async () => {
   }
 })
 
-async function buildTestApp() {
-  const db = new UsageDatabase(":memory:")
-  const ref: AccountRef = {
-    accountKey: "google:test@example.com",
-    provider: "Google",
-    label: "test@example.com",
-    collectorId: "antigravity",
-  }
-
+function seedAccount(db: UsageDatabase, ref: AccountRef, remaining: number): void {
   db.upsertAccount(ref)
   db.ensureState(ref.accountKey, 600)
   db.insertImportedCheck({
@@ -40,17 +26,40 @@ async function buildTestApp() {
       {
         key: "gemini-weekly",
         label: "Gemini — Weekly",
-        remaining: 0.75,
+        remaining,
         resetAt: null,
       },
     ],
   })
+}
+
+async function buildTestApp(
+  options: { extraAccounts?: AccountRef[]; hiddenProviders?: string } = {},
+) {
+  const config = loadConfig({
+    ...process.env,
+    DATABASE_PATH: ":memory:",
+    OPENCODE_CONFIG_DIR: "/nonexistent/opencode",
+    CODEX_HOME: "/nonexistent/codex",
+    HIDDEN_PROVIDERS: options.hiddenProviders ?? "",
+  })
+  const db = new UsageDatabase(":memory:")
+  const ref: AccountRef = {
+    accountKey: "google:test@example.com",
+    provider: "Google",
+    label: "test@example.com",
+    collectorId: "antigravity",
+  }
+  const refs = [ref, ...(options.extraAccounts ?? [])]
+
+  seedAccount(db, ref, 0.75)
+  for (const extra of options.extraAccounts ?? []) seedAccount(db, extra, 0.1)
 
   const scheduler = {
     isRefreshing: () => false,
     getLastTickAt: () => "2026-10-22T12:00:00.000Z",
     isTicking: () => false,
-    getDiscoveredAccountKeys: () => [ref.accountKey],
+    getDiscoveredAccountKeys: () => refs.map((account) => account.accountKey),
     triggerDue: async () => undefined,
     refresh: async () => ({
       refreshed: [],
@@ -164,5 +173,50 @@ describe("HTTP API", () => {
     expect(body.points).toHaveLength(1)
     expect(body.points[0].accountKey).toBe(publicKey)
     expect(body.points[0].remaining).toBeCloseTo(0.75)
+  })
+
+  it("hides configured providers from usage and history", async () => {
+    const hiddenRef: AccountRef = {
+      accountKey: "vnai-pro:default",
+      provider: "VNAI Pro",
+      label: "sk-…1234 (VNAI Pro)",
+      collectorId: "vnai-pro",
+    }
+    const { app, ref } = await buildTestApp({
+      extraAccounts: [hiddenRef],
+      hiddenProviders: "VNAI Pro",
+    })
+
+    for (const url of ["/api/usage", "/api/public/usage"]) {
+      const body = (await app.inject({ method: "GET", url })).json()
+      expect(body.accounts.map((account: { accountKey: string }) => account.accountKey)).toEqual([
+        url === "/api/usage" ? ref.accountKey : toPublicAccountKey(ref.accountKey),
+      ])
+    }
+
+    const allHistory = (
+      await app.inject({
+        method: "GET",
+        url: "/api/history?from=2026-09-01T00:00:00Z",
+      })
+    ).json()
+    expect(allHistory.points).toHaveLength(1)
+    expect(allHistory.points[0].accountKey).toBe(ref.accountKey)
+
+    const hiddenHistory = (
+      await app.inject({
+        method: "GET",
+        url: `/api/history?accountKey=${encodeURIComponent(hiddenRef.accountKey)}&from=2026-09-01T00:00:00Z`,
+      })
+    ).json()
+    expect(hiddenHistory.points).toEqual([])
+
+    const publicHidden = (
+      await app.inject({
+        method: "GET",
+        url: `/api/public/history?accountKey=${encodeURIComponent(toPublicAccountKey(hiddenRef.accountKey))}&from=2026-09-01T00:00:00Z`,
+      })
+    ).json()
+    expect(publicHidden.points).toEqual([])
   })
 })

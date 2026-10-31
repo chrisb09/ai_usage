@@ -4,7 +4,9 @@ import { AntigravityCollector } from "./antigravity.js"
 import { CodexCollector } from "./codex.js"
 import { OneProviderCollector } from "./oneprovider.js"
 import { OpenCodeGoCollector } from "./opencode-go.js"
+import { OpenRouterCollector } from "./openrouter.js"
 import { VnaiProCollector } from "./vnai-pro.js"
+import { GcpBillingCollector } from "./gcp-billing.js"
 import { errorMessage } from "./util.js"
 
 export interface DiscoveredAccount {
@@ -18,7 +20,9 @@ export function createCollectors(config: AppConfig): Collector[] {
     new OpenCodeGoCollector(config),
     new CodexCollector(config),
     new OneProviderCollector(config),
+    new OpenRouterCollector(config),
     new VnaiProCollector(config),
+    new GcpBillingCollector(config),
   ]
 }
 

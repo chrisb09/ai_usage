@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
-import type { AppConfig } from "./config.js"
+import { isHiddenProvider, type AppConfig } from "./config.js"
 import type { UsageDatabase } from "./db.js"
 import type { Quota } from "./domain.js"
 import { isStale } from "./policy.js"
@@ -55,6 +55,7 @@ export function overviewPayload(
   const provider = args.provider?.toLowerCase()
   const selected = views.filter(
     (view) =>
+      !isHiddenProvider(deps.config, view.provider) &&
       (args.includeInactive || view.active) &&
       (!provider || view.provider.toLowerCase() === provider),
   )
@@ -101,15 +102,25 @@ export function historySummary(
   const to = new Date()
   const from = new Date(to.getTime() - hours * 3600 * 1000)
   const bucketSec = Math.max(300, Math.ceil((hours * 3600) / 48 / 300) * 300)
-  const points = deps.db.getHistory({
-    accountKey: args.accountKey,
-    quotaKey: args.quotaKey,
-    from: from.toISOString(),
-    to: to.toISOString(),
-    bucketSec,
-    limit: 50_000,
-  })
-  const accounts = new Map(deps.db.getAccounts().map((account) => [account.account_key, account]))
+  const accountRows = deps.db.getAccounts()
+  const hidden = new Set(
+    accountRows
+      .filter((account) => isHiddenProvider(deps.config, account.provider))
+      .map((account) => account.account_key),
+  )
+  const points = (
+    args.accountKey && hidden.has(args.accountKey)
+      ? []
+      : deps.db.getHistory({
+          accountKey: args.accountKey,
+          quotaKey: args.quotaKey,
+          from: from.toISOString(),
+          to: to.toISOString(),
+          bucketSec,
+          limit: 50_000,
+        })
+  ).filter((point) => !hidden.has(point.accountKey))
+  const accounts = new Map(accountRows.map((account) => [account.account_key, account]))
   const groups = new Map<string, typeof points>()
 
   for (const point of points) {
@@ -243,17 +254,25 @@ export function createMcpServer(deps: McpDeps): McpServer {
         accountKeys && accountKeys.length > 0 ? accountKeys : null,
         "manual",
       )
+      const hidden = new Set(
+        deps.db
+          .getAccounts()
+          .filter((account) => isHiddenProvider(deps.config, account.provider))
+          .map((account) => account.account_key),
+      )
       return textResult({
-        refreshed: summary.refreshed.map((result) => ({
-          accountKey: result.accountKey,
-          provider: result.provider,
-          label: result.label,
-          error: result.error,
-          warning: result.warning,
-          durationMs: result.durationMs,
-          quotas: result.quotas.map(compactQuota),
-        })),
-        skipped: summary.skipped,
+        refreshed: summary.refreshed
+          .filter((result) => !isHiddenProvider(deps.config, result.provider))
+          .map((result) => ({
+            accountKey: result.accountKey,
+            provider: result.provider,
+            label: result.label,
+            error: result.error,
+            warning: result.warning,
+            durationMs: result.durationMs,
+            quotas: result.quotas.map(compactQuota),
+          })),
+        skipped: summary.skipped.filter((skip) => !hidden.has(skip.accountKey)),
       })
     },
   )

@@ -9,7 +9,9 @@ JSON API for usage data, history, and manual checks.
   `null` when unknown. Multiply by 100 for percentages.
 - Account keys use the form `provider:identifier`, for example
   `google:user@example.com`, `codex:default`, `oneprovider:default`, or
-  `vnai-pro:default`.
+  `openrouter:default`.
+- Providers listed in `HIDDEN_PROVIDERS` are still collected but omitted from
+  every usage and history response.
 
 ## Authentication
 
@@ -99,7 +101,7 @@ Account view fields:
 | Field | Description |
 |---|---|
 | `accountKey` | Stable key, e.g. `google:user@example.com` |
-| `provider` | `Google`, `OpenCode Go`, `Codex`, `OneProvider`, or `VNAI Pro` |
+| `provider` | `Google`, `OpenCode Go`, `Codex`, `OneProvider`, or `OpenRouter` |
 | `label` | Display name (email or masked API key) |
 | `active` | `false` for accounts that exist only in imported history |
 | `quotas` | Current quota windows, see below |

@@ -4,13 +4,31 @@ Personal quota dashboard and JSON API for AI provider accounts. It collects usag
 from the same sources as `check_usage.mjs`, stores every observation in SQLite,
 and serves a web dashboard plus an HTTP API.
 
+## Demo
+
+Public, read-only dashboard: <https://usage.christian-f-brinkmann.de/public>
+
+[![AI Usage public overview](docs/screenshots/public-overview.png)](https://usage.christian-f-brinkmann.de/public)
+
+*Public overview: pooled quota history and every active account.*
+
+[![AI Usage account cards](docs/screenshots/account-cards.png)](https://usage.christian-f-brinkmann.de/public)
+
+*Compact account view with quota windows and API credit balances.*
+
+Quota bars fill with the pooled remaining quota; the vertical line marks the
+average time remaining.
+
+![Quota bar colors](docs/screenshots/quota-bars.png)
+
 Supported providers:
 
 - Google Antigravity accounts
 - OpenCode Go
 - Codex
 - OneProvider
-- VNAI Pro
+- OpenRouter
+- Google Cloud promotional credits (estimated from BigQuery billing export)
 
 ## Features
 
@@ -27,9 +45,11 @@ Supported providers:
   independent Google pools with separate history lines. Short-window limits
   remain available on account cards and individual account history. Unspecified
   quota windows are excluded from the long-term overview.
-- **API key balances** — OneProvider and VNAI Pro cards show remaining dollars,
+- **API key balances** — OneProvider and OpenRouter cards show remaining dollars,
   original credit budget, and expiry when provided. Select **API key balances**
   in the history view to track each provider's remaining credit percentage.
+- **Hidden providers** — `HIDDEN_PROVIDERS` keeps collecting accounts while
+  omitting them from the API, dashboard, history, and MCP output.
 - **Safe credential handling** — provider files are read-only except Codex,
   where rotated OAuth tokens are written back atomically to its own `auth.json`
   (the same file the CLI uses) to keep the login alive.
@@ -90,7 +110,7 @@ The example `.env` uses these portable host directories inside the clone:
 | Host directory | Files used |
 |---|---|
 | `secrets/opencode/` | `antigravity-accounts.json`, `opencode-go.json`, `oneprovider.json` |
-| `secrets/opencode-data/` | OpenCode's shared `auth.json` for OneProvider and VNAI Pro |
+| `secrets/opencode-data/` | OpenCode's shared `auth.json` for OneProvider and OpenRouter |
 | `secrets/codex/` | Codex `auth.json` |
 
 You can instead point the three `*_HOST` variables at existing credential
@@ -105,13 +125,20 @@ If a provider's file is missing, that provider is skipped. This applies to
 Codex `auth.json`.
 
 OneProvider first reads `oneprovider.json` (`apiKey` or `key`), then falls back to
-the `oneprovider.key` entry in OpenCode's shared auth store. VNAI Pro reads
-`vnaipro.key` from that same store. On Linux the shared store normally lives at
-`~/.local/share/opencode/auth.json`; set `OPENCODE_DATA_HOST` to its parent
-directory for Docker. Existing login files are used directly.
+the `oneprovider.key` entry in OpenCode's shared auth store. OpenRouter reads
+`openrouter.key` from that same store. Its optional `openrouter-management.key`
+entry is preferred for the account-wide credit balance; without it, the
+collector falls back to the normal key's spending limit. On Linux the shared
+store normally lives at `~/.local/share/opencode/auth.json`; set
+`OPENCODE_DATA_HOST` to its parent directory for Docker. Existing login files
+are used directly.
 
-For a separate VNAI Pro credential file, set `VNAI_PRO_AUTH_PATH` to a mounted
-file containing `{"apiKey":"sk-your-key"}`. Its default is the shared store.
+VNAI Pro remains supported internally through `vnaipro.key`. This deployment
+sets `HIDDEN_PROVIDERS=VNAI Pro,Google Cloud`, so both are still collected and
+stored but never appear in the API, dashboard, history, or MCP output. For a
+separate VNAI Pro credential file, set `VNAI_PRO_AUTH_PATH` to a mounted file
+containing `{"apiKey":"sk-your-key"}`. Its default is the shared store.
+
 The configured keys stay out of usage responses and logs; only masked labels
 and balance/quota information are exposed.
 
@@ -258,8 +285,9 @@ Copy `.env.example` to `.env` and adjust as needed.
 | `REQUEST_TIMEOUT_MS` | `15000` | Per-request provider timeout |
 | `OPENCODE_CONFIG_DIR` | XDG opencode dir | Directory containing provider JSON files |
 | `ANTIGRAVITY_CLIENT_SECRET` | none | Google OAuth client secret from the working reference script; store in private `.env` |
-| `OPENCODE_AUTH_PATH` | XDG opencode data dir + `auth.json` | Shared auth store used for OneProvider and VNAI Pro keys |
+| `OPENCODE_AUTH_PATH` | XDG opencode data dir + `auth.json` | Shared auth store used for OneProvider, OpenRouter, and VNAI Pro keys |
 | `VNAI_PRO_AUTH_PATH` | `OPENCODE_AUTH_PATH` | Optional separate VNAI Pro credential file |
+| `HIDDEN_PROVIDERS` | none | Comma-separated providers still collected but omitted from all output |
 | `CODEX_HOME` | `~/.codex` | Directory containing Codex `auth.json` |
 | `TRUST_PROXY` | `false` | Trust reverse-proxy forwarding headers |
 | `INCLUDE_DISABLED` | `false` | Include disabled Antigravity accounts |
@@ -451,6 +479,46 @@ docker compose build
   reported as `needs login`.
 - Logs redact authorization and cookie headers.
 - API responses include account labels, quota percentages, reset times, and
-  sanitized provider details (for example OneProvider balance/limit), but never
-  credentials.
+  sanitized provider details (for example OneProvider or OpenRouter
+  balance/limit), but never credentials.
 - The default Compose port binding is loopback-only.
+
+## Google Cloud free-trial credits
+
+The optional Google Cloud collector estimates remaining promotional credit from
+the initial grant minus credits applied in the standard BigQuery billing export.
+It queries the entire billing account, since multiple projects can share a grant.
+Billing exports are delayed and missing historical data can overstate the balance.
+An empty export displays “Waiting for billing data”, not a verified full balance.
+Expiry is configured explicitly; the public Billing API does not return the grant
+balance or expiration date.
+
+Set `GCP_BILLING_CONFIG_PATH` to a JSON file accessible inside the container, e.g.
+`/data/gcp-billing.json`:
+
+```json
+{
+  "serviceAccountPath": "/data/google-service-account.json",
+  "queryProject": "your-project-id",
+  "table": "your-project-id.billing_export.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX",
+  "location": "EU",
+  "grantAmount": 264,
+  "currency": "EUR",
+  "expiresAt": "2027-01-21T23:00:00Z",
+  "maximumBytesBilled": 1000000000
+}
+```
+
+Use an ISO timestamp in UTC (`Z`) for `expiresAt` (for the example above:
+`2027-01-21T23:00:00Z`). The date in the Cloud Console may not specify an exact
+expiry time; configure the appropriate boundary for your account.
+Optionally specify `creditId` to select a single promotion. Without it, all
+`PROMOTION` credits are counted; use this only if the configured grant is the sole
+promotion, or represents the total of those grants with the same expiry.
+
+The service account needs `roles/bigquery.dataViewer` on the billing dataset and
+`roles/bigquery.jobUser` on the query project. Store its JSON credential outside
+Git and ensure the container user can read it. No Google SDK dependency is needed.
+Each query has a configurable byte cap (default 1 GB); normal scheduler backoff
+and BigQuery caching reduce repeated work. Credit history records estimated
+remaining fractions, with unknown values while waiting for data.
