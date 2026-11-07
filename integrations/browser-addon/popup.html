@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 13px system-ui, sans-serif; min-width: 260px; margin: 0; padding: 12px; }
+    h1 { font-size: 14px; margin: 0 0 8px; }
+    .status { margin-bottom: 10px; }
+    .ok { color: #1a7f37; }
+    .warn { color: #b35900; }
+    .bad { color: #d20f39; }
+    button { margin-right: 6px; }
+    .muted { color: #666; margin-top: 8px; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; background: #f6f6f6; padding: 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>AI Usage Companion</h1>
+  <div class="status" id="status">Checking…</div>
+  <pre id="detail" hidden></pre>
+  <div>
+    <button id="push">Push cookie now</button>
+    <button id="options">Options</button>
+  </div>
+  <div class="muted" id="pushResult"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
