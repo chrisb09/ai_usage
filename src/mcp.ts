@@ -2,7 +2,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
-import { isHiddenProvider, type AppConfig } from "./config.js"
+import {
+  filterHiddenQuotas,
+  isHiddenProvider,
+  isHiddenQuota,
+  type AppConfig,
+} from "./config.js"
 import type { UsageDatabase } from "./db.js"
 import type { Quota } from "./domain.js"
 import { isStale } from "./policy.js"
@@ -53,11 +58,14 @@ export function overviewPayload(
       isStale(lastSuccessAt, deps.config.policy.maxIntervalSec, now),
   })
   const provider = args.provider?.toLowerCase()
-  const selected = views.filter(
-    (view) =>
-      !isHiddenProvider(deps.config, view.provider) &&
-      (args.includeInactive || view.active) &&
-      (!provider || view.provider.toLowerCase() === provider),
+  const selected = filterHiddenQuotas(
+    deps.config,
+    views.filter(
+      (view) =>
+        !isHiddenProvider(deps.config, view.provider) &&
+        (args.includeInactive || view.active) &&
+        (!provider || view.provider.toLowerCase() === provider),
+    ),
   )
 
   return {
@@ -119,7 +127,9 @@ export function historySummary(
           bucketSec,
           limit: 50_000,
         })
-  ).filter((point) => !hidden.has(point.accountKey))
+  ).filter(
+    (point) => !hidden.has(point.accountKey) && !isHiddenQuota(deps.config, point.quotaKey),
+  )
   const accounts = new Map(accountRows.map((account) => [account.account_key, account]))
   const groups = new Map<string, typeof points>()
 
@@ -261,17 +271,18 @@ export function createMcpServer(deps: McpDeps): McpServer {
           .map((account) => account.account_key),
       )
       return textResult({
-        refreshed: summary.refreshed
-          .filter((result) => !isHiddenProvider(deps.config, result.provider))
-          .map((result) => ({
-            accountKey: result.accountKey,
-            provider: result.provider,
-            label: result.label,
-            error: result.error,
-            warning: result.warning,
-            durationMs: result.durationMs,
-            quotas: result.quotas.map(compactQuota),
-          })),
+        refreshed: filterHiddenQuotas(
+          deps.config,
+          summary.refreshed.filter((result) => !isHiddenProvider(deps.config, result.provider)),
+        ).map((result) => ({
+          accountKey: result.accountKey,
+          provider: result.provider,
+          label: result.label,
+          error: result.error,
+          warning: result.warning,
+          durationMs: result.durationMs,
+          quotas: result.quotas.map(compactQuota),
+        })),
         skipped: summary.skipped.filter((skip) => !hidden.has(skip.accountKey)),
       })
     },

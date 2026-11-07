@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify"
 import { z } from "zod"
-import { isHiddenProvider, type AppConfig } from "./config.js"
+import {
+  filterHiddenQuotas,
+  isHiddenProvider,
+  isHiddenQuota,
+  type AppConfig,
+} from "./config.js"
 import type { UsageDatabase } from "./db.js"
 import { MistralCodeCollector, persistMistralCookie } from "./collectors/mistral-code.js"
 import { maskAccount, sanitizeError, toPublicAccountKey } from "./mask.js"
@@ -111,7 +116,10 @@ export function registerApi(
         isStale(lastSuccessAt, config.policy.maxIntervalSec, now),
     })
     const hidden = hiddenAccountKeys(config, db)
-    const views = allViews.filter((view) => !hidden.has(view.accountKey))
+    const views = filterHiddenQuotas(
+      config,
+      allViews.filter((view) => !hidden.has(view.accountKey)),
+    )
 
     const discovered = new Set(scheduler.getDiscoveredAccountKeys())
     const hasDue = allViews.some((view) => {
@@ -157,7 +165,10 @@ export function registerApi(
           isStale(lastSuccessAt, config.policy.maxIntervalSec, now),
       })
       const hidden = hiddenAccountKeys(config, db)
-      const views = allViews.filter((view) => !hidden.has(view.accountKey))
+      const views = filterHiddenQuotas(
+        config,
+        allViews.filter((view) => !hidden.has(view.accountKey)),
+      )
 
       const discovered = new Set(scheduler.getDiscoveredAccountKeys())
       const hasDue = allViews.some((view) => {
@@ -233,7 +244,10 @@ export function registerApi(
               bucketSec,
               limit: parsed.data.limit,
             })
-            .filter((point) => !hidden.has(point.accountKey))
+            .filter(
+              (point) =>
+                !hidden.has(point.accountKey) && !isHiddenQuota(config, point.quotaKey),
+            )
 
       return {
         points,
@@ -310,7 +324,10 @@ export function registerApi(
         })
 
         const publicPoints = points
-          .filter((point) => !hidden.has(point.accountKey))
+          .filter(
+            (point) =>
+              !hidden.has(point.accountKey) && !isHiddenQuota(config, point.quotaKey),
+          )
           .map((point) => ({
             ...point,
             accountKey: toPublicAccountKey(point.accountKey),
@@ -355,8 +372,9 @@ export function registerApi(
       const hidden = hiddenAccountKeys(config, db)
 
       return {
-        refreshed: summary.refreshed.filter(
-          (result) => !hidden.has(result.accountKey),
+        refreshed: filterHiddenQuotas(
+          config,
+          summary.refreshed.filter((result) => !hidden.has(result.accountKey)),
         ),
         skipped: summary.skipped.filter((skip) => !hidden.has(skip.accountKey)),
       }

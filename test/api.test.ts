@@ -34,10 +34,19 @@ function seedAccount(db: UsageDatabase, ref: AccountRef, remaining: number): voi
   })
 }
 
+function seedQuota(db: UsageDatabase, ref: AccountRef, quota: { key: string; label: string; remaining: number }): void {
+  db.insertImportedCheck({
+    ref,
+    checkedAt: "2026-10-01T00:05:00.000Z",
+    quotas: [quota],
+  })
+}
+
 async function buildTestApp(
   options: {
     extraAccounts?: AccountRef[]
     hiddenProviders?: string
+    hiddenQuotas?: string
     pushToken?: string
     mistralValidator?: MistralCookieValidator
     schedulerRefresh?: (accountKeys: string[] | null) => Promise<unknown>
@@ -49,6 +58,7 @@ async function buildTestApp(
     OPENCODE_CONFIG_DIR: "/nonexistent/opencode",
     CODEX_HOME: "/nonexistent/codex",
     HIDDEN_PROVIDERS: options.hiddenProviders ?? "",
+    HIDDEN_QUOTAS: options.hiddenQuotas ?? "",
     MISTRAL_CODE_CONFIG_PATH: "/tmp/opencode/test-mistral.json",
     CREDENTIAL_PUSH_TOKEN: options.pushToken ?? "",
   })
@@ -95,7 +105,7 @@ async function buildTestApp(
     db.close()
   })
 
-  return { app, ref, refreshCalls }
+  return { app, db, ref, refreshCalls }
 }
 
 describe("HTTP API", () => {
@@ -238,6 +248,75 @@ describe("HTTP API", () => {
       })
     ).json()
     expect(publicHidden.points).toEqual([])
+  })
+
+  it("hides quotas matching HIDDEN_QUOTAS across usage and history", async () => {
+    const { app, db, ref } = await buildTestApp({ hiddenQuotas: "Gemini" })
+    seedQuota(db, ref, { key: "claude-weekly", label: "Claude — Weekly", remaining: 0.5 })
+
+    const usage = (await app.inject({ method: "GET", url: "/api/usage" })).json()
+    expect(usage.accounts).toHaveLength(1)
+    expect(usage.accounts[0].quotas.map((quota: { key: string }) => quota.key)).toEqual([
+      "claude-weekly",
+    ])
+
+    const publicUsage = (await app.inject({ method: "GET", url: "/api/public/usage" })).json()
+    expect(publicUsage.accounts[0].quotas.map((quota: { key: string }) => quota.key)).toEqual([
+      "claude-weekly",
+    ])
+
+    const history = (
+      await app.inject({ method: "GET", url: "/api/history?from=2026-09-01T00:00:00Z" })
+    ).json()
+    expect(
+      history.points.every((point: { quotaKey: string }) => point.quotaKey !== "gemini-weekly"),
+    ).toBe(true)
+    expect(history.points.length).toBeGreaterThan(0)
+
+    const hiddenQuotaHistory = (
+      await app.inject({
+        method: "GET",
+        url: "/api/history?quotaKey=gemini-weekly&from=2026-09-01T00:00:00Z",
+      })
+    ).json()
+    expect(hiddenQuotaHistory.points).toEqual([])
+
+    const publicHistory = (
+      await app.inject({ method: "GET", url: "/api/public/history?from=2026-09-01T00:00:00Z" })
+    ).json()
+    expect(
+      publicHistory.points.every(
+        (point: { quotaKey: string }) => point.quotaKey !== "gemini-weekly",
+      ),
+    ).toBe(true)
+  })
+
+  it("drops accounts whose quotas are all hidden", async () => {
+    const { app, ref } = await buildTestApp({
+      hiddenQuotas: "gemini",
+      schedulerRefresh: async () => ({
+        refreshed: [
+          {
+            accountKey: ref.accountKey,
+            provider: "Google",
+            label: ref.label,
+            quotas: [
+              { key: "gemini-weekly", label: "Gemini — Weekly", remaining: 0.4, resetAt: null },
+            ],
+            error: null,
+            warning: null,
+            durationMs: 10,
+          },
+        ],
+        skipped: [],
+      }),
+    })
+
+    const usage = (await app.inject({ method: "GET", url: "/api/usage" })).json()
+    expect(usage.accounts).toEqual([])
+
+    const refresh = await app.inject({ method: "POST", url: "/api/refresh", payload: {} })
+    expect(refresh.json().refreshed).toEqual([])
   })
 })
 

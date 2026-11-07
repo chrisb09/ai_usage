@@ -49,6 +49,7 @@ const envSchema = z.object({
   CURL_IMPERSONATE_TARGET: optionalString,
   CREDENTIAL_PUSH_TOKEN: optionalString,
   HIDDEN_PROVIDERS: optionalString,
+  HIDDEN_QUOTAS: optionalString,
   CODEX_AUTH_PATH: optionalString,
   CODEX_REFRESH: boolStringDefaultTrue,
   CODEX_CLIENT_ID: optionalString,
@@ -90,6 +91,7 @@ export interface AppConfig {
   requestTimeoutMs: number
   includeDisabled: boolean
   hiddenProviders: string[]
+  hiddenQuotas: string[]
   curlImpersonatePath: string
   curlImpersonateTarget: string
   credentialPushToken: string | undefined
@@ -148,6 +150,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(",")
       .map((provider) => provider.trim())
       .filter((provider) => provider.length > 0),
+    hiddenQuotas: (parsed.HIDDEN_QUOTAS ?? "")
+      .split(",")
+      .map((quota) => quota.trim())
+      .filter((quota) => quota.length > 0),
     curlImpersonatePath: parsed.CURL_IMPERSONATE_PATH || "curl-impersonate",
     curlImpersonateTarget: parsed.CURL_IMPERSONATE_TARGET || "firefox135",
     credentialPushToken: parsed.CREDENTIAL_PUSH_TOKEN,
@@ -187,4 +193,25 @@ export function isHiddenProvider(config: AppConfig, provider: string): boolean {
   return config.hiddenProviders.some(
     (hidden) => hidden.toLowerCase() === provider.toLowerCase(),
   )
+}
+
+export function isHiddenQuota(config: AppConfig, quotaKey: string): boolean {
+  const key = quotaKey.toLowerCase()
+  return config.hiddenQuotas.some((hidden) => key.includes(hidden.toLowerCase()))
+}
+
+/**
+ * Strips hidden quotas from items with a `quotas` list. Items whose quotas are
+ * all hidden are dropped; items without any quotas are kept so error states
+ * stay visible.
+ */
+export function filterHiddenQuotas<T extends { quotas: { key: string }[] }>(
+  config: AppConfig,
+  items: T[],
+): T[] {
+  return items.flatMap((item) => {
+    const quotas = item.quotas.filter((quota) => !isHiddenQuota(config, quota.key))
+    if (quotas.length === 0 && item.quotas.length > 0) return []
+    return [{ ...item, quotas }]
+  })
 }

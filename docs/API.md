@@ -11,7 +11,8 @@ JSON API for usage data, history, and manual checks.
   `google:user@example.com`, `codex:default`, `oneprovider:default`, or
   `openrouter:default`.
 - Providers listed in `HIDDEN_PROVIDERS` are still collected but omitted from
-  every usage and history response.
+  every usage and history response. Quota keys matching a case-insensitive
+  substring from `HIDDEN_QUOTAS` (e.g. `gemini`) are hidden the same way.
 
 ## Authentication
 

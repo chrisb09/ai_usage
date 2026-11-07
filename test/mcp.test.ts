@@ -238,4 +238,43 @@ describe("MCP endpoint", () => {
     expect(overviewPayload(deps).summary.accounts).toBe(0)
     expect(historySummary(deps).seriesCount).toBe(0)
   })
+
+  it("filters hidden quotas from overview and history", () => {
+    const db = new UsageDatabase(":memory:")
+    db.upsertAccount(reference)
+    db.ensureState(reference.accountKey, 600)
+    db.insertImportedCheck({
+      ref: reference,
+      checkedAt: new Date().toISOString(),
+      quotas: [
+        quota("gemini-weekly", "Gemini — Weekly", 0.8),
+        quota("claude-weekly", "Claude — Weekly", 0.6),
+      ],
+    })
+    cleanup.push(() => db.close())
+
+    const deps = {
+      config: loadConfig({
+        ...process.env,
+        DATABASE_PATH: ":memory:",
+        OPENCODE_CONFIG_DIR: "/nonexistent/opencode",
+        CODEX_HOME: "/nonexistent/codex",
+        HIDDEN_QUOTAS: "gemini",
+      }),
+      db,
+      scheduler: { isRefreshing: () => false } as unknown as UsageScheduler,
+    }
+
+    const overview = overviewPayload(deps)
+    expect(overview.summary.accounts).toBe(1)
+    expect(
+      (overview.accounts as Array<{ quotas: Array<{ key: string }> }>)[0].quotas.map(
+        (entry) => entry.key,
+      ),
+    ).toEqual(["claude-weekly"])
+    expect(historySummary(deps).seriesCount).toBe(1)
+    expect((historySummary(deps).series as Array<{ quotaKey: string }>)[0].quotaKey).toBe(
+      "claude-weekly",
+    )
+  })
 })

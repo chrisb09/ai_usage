@@ -55,6 +55,10 @@ Supported providers:
   is roughly $0.04 of API usage, and credits expire 12 months after purchase.
 - **Hidden providers** — `HIDDEN_PROVIDERS` keeps collecting accounts while
   omitting them from the API, dashboard, history, and MCP output.
+- **Hidden quotas** — `HIDDEN_QUOTAS` omits individual quota types (matched as
+  case-insensitive substrings of the quota key, e.g. `gemini` hides every
+  Gemini window on every account) from the API, dashboard, history, and MCP
+  output while collection continues.
 - **Safe credential handling** — provider files are read-only except Codex,
   where rotated OAuth tokens are written back atomically to its own `auth.json`
   (the same file the CLI uses) to keep the login alive.
@@ -326,6 +330,7 @@ Copy `.env.example` to `.env` and adjust as needed.
 | `OPENCODE_AUTH_PATH` | XDG opencode data dir + `auth.json` | Shared auth store used for OneProvider, OpenRouter, and VNAI Pro keys |
 | `VNAI_PRO_AUTH_PATH` | `OPENCODE_AUTH_PATH` | Optional separate VNAI Pro credential file |
 | `HIDDEN_PROVIDERS` | none | Comma-separated providers still collected but omitted from all output |
+| `HIDDEN_QUOTAS` | none | Comma-separated quota-key substrings still collected but omitted from all output |
 | `MISTRAL_CODE_CONFIG_PATH` | `OPENCODE_CONFIG_DIR` + `mistral.json` | Mistral Code session cookie file |
 | `CURL_IMPERSONATE_PATH` | `curl-impersonate` | Path to the curl-impersonate binary |
 | `CURL_IMPERSONATE_TARGET` | `firefox135` | Browser TLS fingerprint target |
