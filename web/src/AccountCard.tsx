@@ -7,6 +7,7 @@ import {
   formatDateTime,
   formatDuration,
   formatMoney,
+  formatNumber,
   formatPercent,
   formatRelative,
 } from "./format"
@@ -20,6 +21,10 @@ export function needsLogin(error: string | null): boolean {
 
 function quotaHint(quota: Quota): string | null {
   if (quota.raw?.waitingForData) return "Waiting for billing data"
+  if (quota.raw?.creditUnlimited === true) return "Unlimited credits"
+  if (typeof quota.raw?.balanceCredits === "number") {
+    return `${formatNumber(quota.raw.balanceCredits)} credits`
+  }
   if (quota.raw?.unlimited === true) return "Unlimited key"
   if (typeof quota.raw?.currency === "string") {
     const balance = formatMoney(quota.raw.balance, quota.raw.currency)
@@ -60,6 +65,7 @@ function QuotaRow(props: { quota: Quota; provider: string; now: number }) {
         {quota.raw?.waitingForData === true && <span>Starting grant: {formatMoney(quota.raw.grantAmount, String(quota.raw.currency))}</span>}
         {typeof quota.raw?.used === "number" && <span>Used {formatMoney(quota.raw.used, String(quota.raw.currency))}</span>}
         {typeof quota.raw?.usedUsd === "number" && <span>Used {formatMoney(quota.raw.usedUsd)}</span>}
+        {typeof quota.raw?.usagePercent === "number" && <span>Used {quota.raw.usagePercent}%</span>}
         {typeof quota.raw?.latestExportAt === "string" && <span title={formatDateTime(quota.raw.latestExportAt)}>Billing data {formatRelative(quota.raw.latestExportAt, now)}</span>}
         {quota.resetAt && <span title={formatDateTime(quota.resetAt)}>{quota.raw?.expired ? "Expired" : hint ? "Expires" : "Reset"} {quota.raw?.expired ? formatDateTime(quota.resetAt) : formatCountdown(quota.resetAt, now)}</span>}
       </div>

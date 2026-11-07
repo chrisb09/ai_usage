@@ -73,6 +73,63 @@ describe("Codex parser", () => {
   it("returns an empty list without a rate limit", () => {
     expect(parseCodexUsage({})).toEqual([])
   })
+
+  it("parses the credit balance with and without a grant", () => {
+    const payload = {
+      rate_limit: {
+        primary_window: { limit_window_seconds: 18_000, used_percent: 25 },
+      },
+      credits: {
+        has_credits: true,
+        unlimited: false,
+        overage_limit_reached: false,
+        balance: "1400.0000000000",
+        approx_local_messages: [350, 1820],
+        approx_cloud_messages: [56, 350],
+      },
+    }
+
+    const withGrant = parseCodexUsage(payload, new Date(), 1400)
+    expect(withGrant.map((quota) => quota.label)).toEqual(["Codex — 5h", "Codex — Credits"])
+    expect(withGrant[1]?.key).toBe("codex-credits")
+    expect(withGrant[1]?.remaining).toBe(1)
+    expect(withGrant[1]?.raw).toMatchObject({ balanceCredits: 1400, grantCredits: 1400 })
+
+    const spent = parseCodexUsage(
+      { ...payload, credits: { ...payload.credits, balance: "350.5" } },
+      new Date(),
+      1400,
+    )
+    expect(spent[1]?.remaining).toBeCloseTo(0.25035714285714287)
+
+    const withoutGrant = parseCodexUsage(payload)
+    expect(withoutGrant[1]?.remaining).toBeNull()
+    expect(withoutGrant[1]?.raw).toMatchObject({ balanceCredits: 1400, grantCredits: null })
+  })
+
+  it("handles unlimited and negative credit balances", () => {
+    const unlimited = parseCodexUsage({
+      credits: { has_credits: true, unlimited: true, balance: "0" },
+    })
+    expect(unlimited[0]?.remaining).toBeNull()
+    expect(unlimited[0]?.raw).toMatchObject({ creditUnlimited: true })
+
+    const negative = parseCodexUsage(
+      { credits: { has_credits: true, unlimited: false, balance: "-12.5" } },
+      new Date(),
+      1400,
+    )
+    expect(negative[0]?.remaining).toBe(0)
+    expect(negative[0]?.raw).toMatchObject({ balanceCredits: -12.5, overageLimitReached: false })
+  })
+
+  it("omits the credits quota when the account has none", () => {
+    const quotas = parseCodexUsage({
+      rate_limit: { primary_window: { limit_window_seconds: 18_000, used_percent: 25 } },
+      credits: { has_credits: false, unlimited: false, balance: "0.0000000000" },
+    })
+    expect(quotas.map((quota) => quota.label)).toEqual(["Codex — 5h"])
+  })
 })
 
 describe("Antigravity parsers", () => {

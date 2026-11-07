@@ -46,6 +46,10 @@ export function formatMoney(value: unknown, currency = "USD"): string | null {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value)
 }
 
+export function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value)
+}
+
 export function barTone(value: number | null): "good" | "warn" | "bad" | "unknown" {
   if (value === null || !Number.isFinite(value)) return "unknown"
   if (value >= 0.5) return "good"
@@ -65,6 +69,8 @@ export function providerOrder(provider: string): number {
       return 3
     case "OpenRouter":
       return 4
+    case "Mistral Code":
+      return 5
     default:
       return 9
   }
