@@ -55,6 +55,8 @@ function providerColor(provider: string): string {
       return "#f38ba8"
     case "OpenRouter":
       return "#b4befe"
+    case "Mistral Code":
+      return "#fa500f"
     case "VNAI Pro":
       return "#94e2d5"
     default:

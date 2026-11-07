@@ -4,6 +4,7 @@ import { AntigravityCollector } from "./antigravity.js"
 import { CodexCollector } from "./codex.js"
 import { OneProviderCollector } from "./oneprovider.js"
 import { OpenCodeGoCollector } from "./opencode-go.js"
+import { MistralCodeCollector } from "./mistral-code.js"
 import { OpenRouterCollector } from "./openrouter.js"
 import { VnaiProCollector } from "./vnai-pro.js"
 import { GcpBillingCollector } from "./gcp-billing.js"
@@ -21,6 +22,7 @@ export function createCollectors(config: AppConfig): Collector[] {
     new CodexCollector(config),
     new OneProviderCollector(config),
     new OpenRouterCollector(config),
+    new MistralCodeCollector(config),
     new VnaiProCollector(config),
     new GcpBillingCollector(config),
   ]

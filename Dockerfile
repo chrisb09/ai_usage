@@ -19,6 +19,23 @@ RUN npm prune --omit=dev
 
 FROM node:22-bookworm-slim AS runtime
 
+# curl-impersonate lets the Mistral Code collector present a browser TLS
+# fingerprint to Cloudflare. Version and target are pinned; see README.
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends ca-certificates; \
+  rm -rf /var/lib/apt/lists/*; \
+  case "$(dpkg --print-architecture)" in \
+    amd64) ci_arch=x86_64 ;; \
+    arm64) ci_arch=aarch64 ;; \
+    *) echo "unsupported architecture" >&2; exit 1 ;; \
+  esac; \
+  node -e "const fs=require('fs');fetch(process.argv[1]).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.arrayBuffer()}).then(b=>fs.writeFileSync('/tmp/ci.tar.gz',Buffer.from(b)))" \
+    "https://github.com/lexiforest/curl-impersonate/releases/download/v2.3.2/curl-impersonate-v2.3.2.${ci_arch}-linux-gnu.tar.gz"; \
+  mkdir -p /tmp/ci && tar -xzf /tmp/ci.tar.gz -C /tmp/ci; \
+  install -m 0755 /tmp/ci/curl-impersonate /usr/local/bin/curl-impersonate; \
+  rm -rf /tmp/ci /tmp/ci.tar.gz
+
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=7694

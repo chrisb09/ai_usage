@@ -28,6 +28,7 @@ Supported providers:
 - Codex
 - OneProvider
 - OpenRouter
+- Mistral Code (monthly usage via a chat.mistral.ai session cookie)
 - Google Cloud promotional credits (estimated from BigQuery billing export)
 
 ## Features
@@ -48,6 +49,10 @@ Supported providers:
 - **API key balances** — OneProvider and OpenRouter cards show remaining dollars,
   original credit budget, and expiry when provided. Select **API key balances**
   in the history view to track each provider's remaining credit percentage.
+- **Codex credits** — the Codex card also shows the pay-as-you-go credit
+  balance (used after plan limits). Set `CODEX_CREDITS_GRANT` to the purchased
+  total so the balance gets a remaining fraction and a history line; one credit
+  is roughly $0.04 of API usage, and credits expire 12 months after purchase.
 - **Hidden providers** — `HIDDEN_PROVIDERS` keeps collecting accounts while
   omitting them from the API, dashboard, history, and MCP output.
 - **Safe credential handling** — provider files are read-only except Codex,
@@ -109,7 +114,7 @@ The example `.env` uses these portable host directories inside the clone:
 
 | Host directory | Files used |
 |---|---|
-| `secrets/opencode/` | `antigravity-accounts.json`, `opencode-go.json`, `oneprovider.json` |
+| `secrets/opencode/` | `antigravity-accounts.json`, `opencode-go.json`, `oneprovider.json`, `mistral.json` |
 | `secrets/opencode-data/` | OpenCode's shared `auth.json` for OneProvider and OpenRouter |
 | `secrets/codex/` | Codex `auth.json` |
 
@@ -164,6 +169,39 @@ weekly, and 5-hour—appear on the account card and individual history. The
 overview uses the monthly meter, falling back to weekly when monthly is absent.
 An expired session is reported as needing login; replace the console session
 in the credential file after signing in again.
+
+### Mistral Code monthly usage
+
+Mistral Code (the chat.mistral.ai coding extension) exposes a monthly usage
+meter through a tRPC endpoint that sits behind Cloudflare. The collector shells
+out to [curl-impersonate](https://github.com/lexiforest/curl-impersonate)
+(bundled in the Docker image) to present a Firefox TLS fingerprint, and
+authenticates with the long-lived `ory_session_*` cookie from a logged-in
+browser session. Plain API keys do not work for this endpoint.
+
+Create `mistral.json` in `${OPENCODE_CONFIG_HOST}` (or set
+`MISTRAL_CODE_CONFIG_PATH` to a mounted file). Copy the `ory_session_*`
+cookie from the browser's request cookies:
+
+```json
+{
+  "orySessionCookie": "ory_session_...=\"...\""
+}
+```
+
+The card shows the percentage of the monthly allowance already used and the
+reset date. An expired cookie is reported as needing login.
+
+**Automatic reconnection:** instead of re-copying the cookie by hand, install
+the [browser addon](integrations/browser-addon/) in your regular browser. It
+polls the dashboard, detects an expired Mistral session, pushes the fresh
+`ory_session_*` cookie from your browser to
+`POST /api/credentials/mistral` (authenticated with `CREDENTIAL_PUSH_TOKEN`),
+and clears its badge once the server validates and refreshes the account.
+The endpoint validates the cookie with a live collection attempt before
+persisting it, so invalid pushes never overwrite a working session.
+`CURL_IMPERSONATE_PATH` overrides the bundled binary path and
+`CURL_IMPERSONATE_TARGET` the fingerprint target (default `firefox135`).
 
 The Codex directory is mounted read-write because the server refreshes the
 Codex OAuth access token and writes rotated tokens back to `auth.json`, the
@@ -288,15 +326,21 @@ Copy `.env.example` to `.env` and adjust as needed.
 | `OPENCODE_AUTH_PATH` | XDG opencode data dir + `auth.json` | Shared auth store used for OneProvider, OpenRouter, and VNAI Pro keys |
 | `VNAI_PRO_AUTH_PATH` | `OPENCODE_AUTH_PATH` | Optional separate VNAI Pro credential file |
 | `HIDDEN_PROVIDERS` | none | Comma-separated providers still collected but omitted from all output |
+| `MISTRAL_CODE_CONFIG_PATH` | `OPENCODE_CONFIG_DIR` + `mistral.json` | Mistral Code session cookie file |
+| `CURL_IMPERSONATE_PATH` | `curl-impersonate` | Path to the curl-impersonate binary |
+| `CURL_IMPERSONATE_TARGET` | `firefox135` | Browser TLS fingerprint target |
+| `CREDENTIAL_PUSH_TOKEN` | none | Bearer token for `POST /api/credentials/mistral` (browser addon cookie push); unset disables the endpoint |
 | `CODEX_HOME` | `~/.codex` | Directory containing Codex `auth.json` |
 | `TRUST_PROXY` | `false` | Trust reverse-proxy forwarding headers |
 | `INCLUDE_DISABLED` | `false` | Include disabled Antigravity accounts |
 | `CODEX_REFRESH` | `true` | Refresh Codex OAuth tokens and write them back to `auth.json` |
 | `CODEX_REFRESH_SKEW_SEC` | `300` | Refresh the Codex token when it expires within this window |
 | `CODEX_CLIENT_ID` | built-in | Override the OAuth client id used for Codex token refresh |
+| `CODEX_CREDITS_GRANT` | none | Total Codex credits granted/purchased; enables the remaining fraction and history line for the credit balance |
 
 Optional explicit file overrides: `ANTIGRAVITY_ACCOUNTS_PATH`,
-`OPENCODE_GO_CONFIG_PATH`, `ONEPROVIDER_CONFIG_PATH`, `CODEX_AUTH_PATH`.
+`OPENCODE_GO_CONFIG_PATH`, `ONEPROVIDER_CONFIG_PATH`, `CODEX_AUTH_PATH`,
+`MISTRAL_CODE_CONFIG_PATH`.
 
 `OPENCODE_DATA_HOST` controls the Docker host directory mounted read-only for the
 shared auth store. Compose sets `OPENCODE_AUTH_PATH` inside the container.

@@ -175,7 +175,8 @@ export default function App() {
                 <p>
                   Mount your credential files into the container and make sure they are
                   readable. The collector looks for Antigravity, OpenCode Go, Codex, and
-                   OneProvider configuration files, plus OpenRouter in the OpenCode auth store.
+                  OneProvider configuration files, OpenRouter in the OpenCode auth store,
+                  and a Mistral Code session cookie file.
                 </p>
                 {usage.scheduler.ticking && (
                   <p className="muted">
