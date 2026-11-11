@@ -138,6 +138,21 @@ function balanceText(quota) {
     return formatMoney(balance)
 }
 
+function requestCounts(quota) {
+    if (!quota || !quota.raw) return null
+    var limit = number(quota.raw.requestLimit)
+    var remaining = number(quota.raw.requestsRemaining)
+    if (isNaN(limit) || isNaN(remaining)) return null
+    if (limit <= 0 || remaining < 0 || remaining > limit) return null
+    return { remaining: remaining, limit: limit }
+}
+
+function requestCountsText(quota) {
+    var counts = requestCounts(quota)
+    if (!counts) return ""
+    return counts.remaining + " / " + counts.limit + " requests remaining"
+}
+
 function formatDuration(ms) {
     if (!isFinite(ms)) return ""
     if (ms <= 0) return "now"
@@ -249,7 +264,11 @@ function windowLabel(quota) {
     if (seconds === 7 * DAY_SEC) return "7d"
     if (seconds === 30 * DAY_SEC) return "30d"
     if (seconds === DAY_SEC) return "1d"
-    if (seconds !== null) return Math.round(seconds / HOUR_SEC) + "h"
+    if (seconds !== null) {
+        if (seconds < 60) return Math.round(seconds) + "s"
+        if (seconds < HOUR_SEC) return Math.round(seconds / 60) + "m"
+        return Math.round(seconds / HOUR_SEC) + "h"
+    }
     return "Balance"
 }
 
@@ -333,6 +352,7 @@ function pooledWindow(quotas, serverTime) {
         resetText: formatReset(pooled, serverTime),
         paceText: pace,
         balanceText: balanceText(pooled),
+        requestText: quotas.length === 1 ? requestCountsText(quotas[0]) : "",
         available: remainingCount > 0,
         matchCount: quotas.length,
         availableCount: remainingCount
@@ -393,7 +413,8 @@ function buildSummary(accounts, serverTime) {
         }
         item.windows.sort(function (a, b) {
             var rank = quotaRank(a.quota) - quotaRank(b.quota)
-            return rank !== 0 ? rank : a.label.localeCompare(b.label)
+            var duration = (windowSec(b.quota) || 0) - (windowSec(a.quota) || 0)
+            return rank || duration || a.label.localeCompare(b.label)
         })
         delete item.windowMap
     }

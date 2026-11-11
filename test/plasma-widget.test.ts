@@ -172,6 +172,81 @@ describe("Plasma widget data helpers", () => {
     expect(usage.remainingColor(-1)).toBe("#8b949e")
   })
 
+  it("labels second and minute windows without rounding to hours", () => {
+    const groups = usage.buildSummary([
+      account("saia:default", "SAIA", "SAIA", [
+        quota("saia-10s", "SAIA — 10s", 0.9, null, 10),
+        quota("saia-minute", "SAIA — minute", 0.5, null, 60),
+        quota("saia-hour", "SAIA — hour", 0.75, null, 3_600),
+        quota("saia-day", "SAIA — day", 0.5, null, 86_400),
+      ]),
+    ], now)
+
+    const labels = groups[0].windows.map((item: any) => item.label)
+    expect(labels).toEqual(["1d", "1h", "1m", "10s"])
+  })
+
+  it("shows request counts for a single quota without inventing a reset", () => {
+    const groups = usage.buildSummary([
+      account("saia:default", "SAIA", "SAIA", [
+        quota("saia-10s", "SAIA — 10s", 0.9, null, 10, {
+          requestLimit: 10,
+          requestsRemaining: 9,
+        }),
+      ]),
+    ], now)
+
+    expect(groups[0].windows[0].label).toBe("10s")
+    expect(groups[0].windows[0].requestText).toBe("9 / 10 requests remaining")
+    expect(groups[0].windows[0].resetText).toBe("")
+  })
+
+  it("does not aggregate request counts across accounts", () => {
+    const groups = usage.buildSummary([
+      account("saia:a", "SAIA", "a", [
+        quota("saia-10s", "SAIA — 10s", 0.9, null, 10, {
+          requestLimit: 10,
+          requestsRemaining: 9,
+        }),
+      ]),
+      account("saia:b", "SAIA", "b", [
+        quota("saia-10s", "SAIA — 10s", 0.5, null, 10, {
+          requestLimit: 10,
+          requestsRemaining: 5,
+        }),
+      ]),
+    ], now)
+
+    expect(groups[0].windows[0].matchCount).toBe(2)
+    expect(groups[0].windows[0].requestText).toBe("")
+  })
+
+  it("hides missing or invalid request counts", () => {
+    const groups = usage.buildSummary([
+      account("saia:default", "SAIA", "SAIA", [
+        quota("saia-10s", "SAIA — 10s", 0.9, null, 10, { requestLimit: 10 }),
+        quota("saia-minute", "SAIA — minute", 0.5, null, 60, {
+          requestLimit: 0,
+          requestsRemaining: 0,
+        }),
+        quota("saia-hour", "SAIA — hour", 0.75, null, 3_600, {
+          requestLimit: 10,
+          requestsRemaining: 11,
+        }),
+        quota("saia-day", "SAIA — day", 0.5, null, 86_400, {
+          requestLimit: "10",
+          requestsRemaining: 5,
+        }),
+      ]),
+      account("codex:default", "Codex", "Codex", [
+        quota("codex-weekly", "Codex — Weekly", 0.9, null, 604_800),
+      ]),
+    ], now)
+
+    expect(groups.flatMap((group: any) => group.windows)
+      .every((item: any) => item.requestText === "")).toBe(true)
+  })
+
   it("falls back to labels for imported or older quota rows", () => {
     expect(usage.windowSec({ key: "claude-5h", label: "Claude — 5h" })).toBe(18_000)
     expect(usage.windowSec({ key: "claude-weekly", label: "Claude — Weekly" })).toBe(604_800)

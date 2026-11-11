@@ -85,6 +85,17 @@ ColumnLayout {
 
                 PlasmaComponents3.Label {
                     Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: modelData.requestText || ""
+                    textFormat: Text.PlainText
+                    font: PlasmaCore.Theme.smallestFont
+                    opacity: 0.65
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
                     text: modelData.balanceText.length > 0
                         ? modelData.balanceText
                         : modelData.resetText + (modelData.paceText.length > 0

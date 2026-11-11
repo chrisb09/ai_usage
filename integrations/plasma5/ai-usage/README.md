@@ -19,9 +19,12 @@ longest rolling window.
 
 Click the widget to open a native Plasma popup. Each type occupies one compact
 row, with its two or three windows side by side. Reset countdowns, balances,
-pace, and errors remain available without listing every account. Hover the
-panel for pooled values. Right-click for **Open dashboard**, **Refresh
-providers**, and **Reload credentials**.
+pace, and errors remain available without listing every account. SAIA request
+quotas show their observed `requestsRemaining / requestLimit` under the bar when
+the window comes from a single quota. Counts are never summed across accounts,
+and missing or invalid counts are omitted. Hover the panel for pooled values.
+Right-click for **Open dashboard**, **Refresh providers**, and **Reload
+credentials**.
 
 ## Requirements
 
@@ -98,8 +101,14 @@ No trailing slash is needed on the dashboard URL.
 The time marker needs the quota window length. The API exposes `windowSec` on
 every quota when known (`604800` for weekly, `2592000` for monthly, `18000` for
 5-hour). Older data without `windowSec` is inferred from the quota key or label.
-Balance-style quotas such as OneProvider and VNAI Pro have no rolling window, so
-they show a bar but no time marker.
+Short windows are labelled in seconds or minutes (`10s`, `1m`); longer windows
+keep hour and day labels. Balance-style quotas such as OneProvider and VNAI Pro
+have no rolling window, so they show a bar but no time marker.
+
+SAIA counts come from `raw.requestLimit` and `raw.requestsRemaining`. They are
+the last observed snapshot, not a live counter. ai_usage does not expose SAIA
+reset times because their semantics are unverified, so the widget shows no
+countdown or reset guess for those quotas.
 
 The widget uses the server's `serverTime` for the marker. Each pooled window
 uses the earliest upcoming reset for its countdown. It polls cached data;
