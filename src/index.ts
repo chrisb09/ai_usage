@@ -15,6 +15,7 @@ async function main(): Promise<void> {
       level: config.logLevel,
       redact: [
         "req.headers.authorization",
+        'req.headers["x-ai-usage-token"]',
         "req.headers.cookie",
         "res.headers.set-cookie",
       ],
@@ -38,6 +39,11 @@ async function main(): Promise<void> {
   })
 
   app.setErrorHandler((error, request, reply) => {
+    if (request.url.split("?")[0] === "/api/saia/observations") {
+      const status = (error as Error & { statusCode?: number }).statusCode ?? 500
+      app.log.warn({ url: request.url.split("?")[0], status }, "SAIA observation request failed")
+      return reply.code(status).send({ error: { code: status < 500 ? "invalid_request" : "internal_error", message: status < 500 ? "Invalid SAIA observation" : "Internal server error" } })
+    }
     app.log.error({ error, url: request.url, method: request.method }, "request failed")
     const err = error as Error & { statusCode?: number }
     const status = err.statusCode ?? 500

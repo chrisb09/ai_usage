@@ -15,7 +15,7 @@ JSON API for usage data, history, and manual checks.
 
 ## Authentication
 
-The app does not implement authentication. When it is exposed beyond loopback,
+The app does not authenticate general read and dashboard endpoints. When it is exposed beyond loopback,
 a reverse proxy in front of it enforces HTTP Basic Auth. The public instance
 returns `401 Unauthorized` for unauthenticated requests to every path,
 including `/api/*`.
@@ -36,6 +36,9 @@ curl -H "Authorization: Basic $(printf 'username:password' | base64)" \
 Credentials are accepted by the proxy, not the app, so they protect the
 dashboard and the API equally. Avoid putting credentials in URLs, since those
 end up in logs and shell history.
+
+The optional SAIA ingestion endpoint also requires its own `X-AI-Usage-Token`
+header, independent of the proxy's Basic authentication.
 
 ### Multiple users
 
@@ -119,7 +122,8 @@ Quota fields: `key`, `label`, `remaining`, `resetAt`, `windowSec`, and an
 optional `raw` object. `windowSec` is the length of the quota window in seconds
 (for example `604800` for a weekly limit or `18000` for a 5-hour limit); it is
 `null` for balance-style quotas with no rolling window. API key providers include
-`raw.balanceUsd`, `raw.quotaUsd`, `raw.usedUsd`, and `raw.expiresAt`.
+`raw.balanceUsd`, `raw.quotaUsd`, `raw.usedUsd`, and `raw.expiresAt`. SAIA
+quotas include `raw.requestLimit` and `raw.requestsRemaining`.
 
 ```bash
 curl -su 'username:password' https://usage.christian-f-brinkmann.de/api/usage \
@@ -155,6 +159,13 @@ the newest observation per account and quota in each bucket is kept.
 curl -su 'username:password' \
   "https://usage.christian-f-brinkmann.de/api/history?accountKey=codex:default&from=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
 ```
+
+## `POST /api/saia/observations`
+
+Accept passive, authenticated SAIA request-quota observations from a trusted
+client. See [SAIA passive observations](../README.md#saia-passive-observations)
+for configuration, the request schema, response codes, and limitations. This
+endpoint does not make or initiate any SAIA requests.
 
 ## `POST /api/refresh`
 

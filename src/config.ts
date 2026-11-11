@@ -44,6 +44,7 @@ const envSchema = z.object({
   OPENCODE_AUTH_PATH: optionalString,
   VNAI_PRO_AUTH_PATH: optionalString,
   GCP_BILLING_CONFIG_PATH: optionalString,
+  SAIA_INGEST_TOKEN: optionalString.refine((value) => !value || value.length >= 32, "SAIA_INGEST_TOKEN must be at least 32 characters"),
   HIDDEN_PROVIDERS: optionalString,
   CODEX_AUTH_PATH: optionalString,
   CODEX_REFRESH: boolStringDefaultTrue,
@@ -84,6 +85,7 @@ export interface AppConfig {
   requestTimeoutMs: number
   includeDisabled: boolean
   hiddenProviders: string[]
+  saiaIngestToken: string | undefined
   antigravityClientSecret: string | undefined
   codexRefresh: boolean
   codexClientId: string | undefined
@@ -138,6 +140,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(",")
       .map((provider) => provider.trim())
       .filter((provider) => provider.length > 0),
+    saiaIngestToken: parsed.SAIA_INGEST_TOKEN,
     antigravityClientSecret: parsed.ANTIGRAVITY_CLIENT_SECRET,
     codexRefresh: parsed.CODEX_REFRESH,
     codexClientId: parsed.CODEX_CLIENT_ID,

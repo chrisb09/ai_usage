@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify"
+import { createHash, timingSafeEqual } from "node:crypto"
 import { z } from "zod"
 import { isHiddenProvider, type AppConfig } from "./config.js"
 import type { UsageDatabase } from "./db.js"
@@ -8,6 +9,18 @@ import type { UsageScheduler } from "./scheduler.js"
 import type { Trigger } from "./domain.js"
 
 const APP_VERSION = "0.1.0"
+
+const saiaObservationSchema = z.object({
+  observedAt: z.string().datetime({ offset: true }),
+  windows: z.array(z.object({
+    window: z.enum(["10s", "minute", "hour", "day", "month"]),
+    limit: z.number().int().positive().safe(),
+    remaining: z.number().int().nonnegative().safe(),
+  }).strict().refine((value) => value.remaining <= value.limit)).min(1).max(5),
+}).strict().refine((value) => new Set(value.windows.map((window) => window.window)).size === value.windows.length)
+
+const hashToken = (value: string): Buffer => createHash("sha256").update(value).digest()
+const saiaWindowSeconds: Record<string, number> = { "10s": 10, minute: 60, hour: 3600, day: 86400 }
 
 const historyQuerySchema = z.object({
   accountKey: z.string().min(1).optional(),
@@ -73,6 +86,31 @@ export function registerApi(
   },
 ): void {
   const { config, db, scheduler } = deps
+
+  app.post("/api/saia/observations", {
+    bodyLimit: 8192,
+    config: { rateLimit: { max: 120, timeWindow: "1 minute" } },
+  }, async (request, reply) => {
+    if (!config.saiaIngestToken) return reply.code(404).send({ error: { code: "not_found", message: "Not found" } })
+    const token = request.headers["x-ai-usage-token"]
+    if (typeof token !== "string" || !timingSafeEqual(hashToken(token), hashToken(config.saiaIngestToken))) {
+      return reply.code(401).send({ error: { code: "unauthorized", message: "Unauthorized" } })
+    }
+    const parsed = saiaObservationSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send(badRequest("Invalid SAIA observation"))
+    const timestamp = Date.parse(parsed.data.observedAt)
+    const now = Date.now()
+    if (!Number.isFinite(timestamp) || timestamp > now + 30_000) return reply.code(400).send(badRequest("Invalid observation time"))
+    const quotas = parsed.data.windows.map(({ window, limit, remaining }) => ({
+      key: `saia-${window}`,
+      label: `SAIA — ${window}`,
+      remaining: remaining / limit,
+      resetAt: null,
+      raw: { requestLimit: limit, requestsRemaining: remaining, ...(saiaWindowSeconds[window] ? { windowSec: saiaWindowSeconds[window] } : {}) },
+    }))
+    const accepted = db.recordSaiaObservation(new Date(Math.min(timestamp, now)).toISOString(), quotas, config.policy.minIntervalSec)
+    return reply.code(202).send({ accepted })
+  })
 
   app.get("/api/usage", async () => {
     const now = new Date()

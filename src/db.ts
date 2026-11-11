@@ -297,9 +297,10 @@ export class UsageDatabase {
     const rows = this.db
       .prepare(
         `WITH latest AS (
-           SELECT account_key, MAX(id) AS check_id
-           FROM checks WHERE ok = 1
-           GROUP BY account_key
+           SELECT a.account_key, (SELECT c.id FROM checks c
+             WHERE c.account_key = a.account_key AND c.ok = 1
+             ORDER BY c.started_at DESC, c.id DESC LIMIT 1) AS check_id
+           FROM accounts a
          )
          SELECT o.account_key, o.quota_key, o.quota_label, o.remaining, o.reset_at, o.raw_json
          FROM observations o
@@ -420,6 +421,34 @@ export class UsageDatabase {
     })
 
     return transaction()
+  }
+
+  /** Store only strictly newer passive observations; absent windows remain unknown. */
+  recordSaiaObservation(checkedAt: string, quotas: Quota[], minIntervalSec: number): boolean {
+    const transaction = this.db.transaction(() => {
+      const key = "saia:default"
+      const previous = this.getState(key)?.lastSuccessAt
+      if (previous && previous >= checkedAt) return false
+      this.upsertAccount({ accountKey: key, provider: "SAIA", label: "SAIA", collectorId: "" })
+      this.ensureState(key, minIntervalSec)
+      const check = this.db.prepare(
+        `INSERT INTO checks (account_key, started_at, finished_at, trigger, ok, error, duration_ms)
+         VALUES (?, ?, ?, 'push', 1, NULL, 0)`,
+      ).run(key, checkedAt, checkedAt)
+      const insert = this.db.prepare(
+        `INSERT INTO observations (check_id, account_key, quota_key, quota_label, remaining, reset_at, raw_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      for (const quota of quotas) {
+        insert.run(check.lastInsertRowid, key, quota.key, quota.label, quota.remaining, quota.resetAt, JSON.stringify(quota.raw ?? null))
+      }
+      this.db.prepare(
+        `UPDATE account_state SET last_attempt_at = ?, last_success_at = ?, last_change_at = ?,
+         next_check_at = NULL, last_error = NULL, last_warning = NULL, last_duration_ms = 0 WHERE account_key = ?`,
+      ).run(checkedAt, checkedAt, checkedAt, key)
+      return true
+    })
+    return transaction.immediate()
   }
 
   insertImportedCheck(args: {

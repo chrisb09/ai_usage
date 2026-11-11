@@ -186,7 +186,10 @@ export class UsageScheduler {
       this.db.ensureState(accountKey, this.config.policy.minIntervalSec, now)
     }
 
-    this.db.deactivateAccountsExcept([...discovered.keys()])
+    this.db.deactivateAccountsExcept([
+      ...discovered.keys(),
+      ...(this.config.saiaIngestToken ? ["saia:default"] : []),
+    ])
     this.accounts = discovered
   }
 

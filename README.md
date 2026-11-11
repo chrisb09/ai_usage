@@ -29,6 +29,7 @@ Supported providers:
 - OneProvider
 - OpenRouter
 - Google Cloud promotional credits (estimated from BigQuery billing export)
+- SAIA (passive request quota observations from a client)
 
 ## Features
 
@@ -374,6 +375,45 @@ curl -s http://127.0.0.1:7694/api/history?accountKey=google:user@example.com \
   | jq '.points | length'
 ```
 
+### SAIA passive observations
+
+SAIA request limits are collected only from real requests made by a separate
+client; ai-usage never sends inference requests or polls SAIA. To enable uploads,
+set `SAIA_INGEST_TOKEN` in the server's private `.env` to a random secret of at
+least 32 characters (for example, generate one locally with `openssl rand -hex 32`).
+Recreate the service so it receives the updated environment. This is an upload
+secret, **not** the SAIA API key. Leave it unset to disable the endpoint.
+
+Send `POST /api/saia/observations` with `Content-Type: application/json` and
+`X-AI-Usage-Token: <upload secret>`. A reverse proxy requiring Basic auth still
+requires its separate `Authorization` header. Use HTTPS for remote uploads.
+
+```json
+{
+  "observedAt": "2026-11-11T12:33:08.000Z",
+  "windows": [
+    { "window": "10s", "limit": 10, "remaining": 9 },
+    { "window": "hour", "limit": 400, "remaining": 399 },
+    { "window": "day", "limit": 800, "remaining": 799 }
+  ]
+}
+```
+
+Use the UTC timestamp when response headers are observed. Supported window
+names are `10s`, `minute`, `hour`, `day`, and `month`. Report only windows with
+both actual limit and remaining headers, as integer request counts. Do not send
+the SAIA key, prompts, responses, or reset guesses. The response is HTTP 202
+with `{ "accepted": true }`; older or duplicate timestamps return
+`{ "accepted": false }`. Invalid input or a timestamp more than 30 seconds in
+the future returns 400; smaller clock differences are clamped to server time.
+Invalid authentication returns 401, and a disabled endpoint returns 404.
+
+All reports currently represent one account, `saia:default`. Only report data
+for the same SAIA account and quota scope. Missing windows are omitted from the
+latest snapshot, not assumed full or carried forward. Reset times are unknown.
+Snapshots go stale when reports stop. Older observation timestamps are ignored,
+but concurrent provider responses may not arrive in provider processing order.
+
 ### `POST /api/refresh`
 
 Force checks. The body is optional:
@@ -419,8 +459,9 @@ usage.example.com {
 }
 ```
 
-The app does not implement its own authentication. Keep the published port on
-loopback and let the reverse proxy handle access control.
+The app does not authenticate its general dashboard and read endpoints. Keep the
+published port on loopback and let the reverse proxy handle access control. The
+optional SAIA ingestion endpoint additionally requires its own upload secret.
 
 For multiple users, create a bcrypt password file and point the proxy at it:
 

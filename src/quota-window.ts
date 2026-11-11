@@ -23,6 +23,9 @@ export function quotaWindowSec(quota: Quota): number | null {
   const fromRaw = positive(quota.raw?.windowSec) ?? positive(quota.raw?.windowSeconds)
   if (fromRaw !== null) return fromRaw
 
+  // SAIA's month is a calendar window, not a known fixed number of seconds.
+  if (quota.key === "saia-month") return null
+
   const text = `${quota.key} ${quota.label}`.toLowerCase()
   if (/(^|[^a-z0-9])5h([^a-z0-9]|$)/.test(text) || text.includes("5-hour") || text.includes("5 hour")) {
     return 5 * HOUR_SEC

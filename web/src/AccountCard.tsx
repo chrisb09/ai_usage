@@ -56,6 +56,7 @@ function QuotaRow(props: { quota: Quota; provider: string; now: number }) {
         <div className={`bar-fill tone-${tone}`} style={{ width: `${width}%` }} />
       </div>
       <div className="quota-meta">
+        {typeof quota.raw?.requestsRemaining === "number" && typeof quota.raw?.requestLimit === "number" && <span>{quota.raw.requestsRemaining} / {quota.raw.requestLimit} requests remaining</span>}
         {hint && !quota.raw?.waitingForData && <span>{quota.raw?.estimated ? "Estimated · " : ""}{formatPercent(quota.remaining)} remaining</span>}
         {quota.raw?.waitingForData === true && <span>Starting grant: {formatMoney(quota.raw.grantAmount, String(quota.raw.currency))}</span>}
         {typeof quota.raw?.used === "number" && <span>Used {formatMoney(quota.raw.used, String(quota.raw.currency))}</span>}
@@ -124,9 +125,9 @@ export function AccountCard(props: {
       <div className="account-actions">
         <div className="account-timing" title={`Checked: ${formatDateTime(account.lastSuccessAt)} · Next: ${formatDateTime(account.nextCheckAt)} · Interval: ${formatDuration(account.lastError ? account.errorIntervalSec : account.intervalSec)}`}>
           <span>{formatRelative(account.lastSuccessAt, now)}</span>
-          <span>Next {formatCountdown(account.nextCheckAt, now)}</span>
+          {account.provider !== "SAIA" && <span>Next {formatCountdown(account.nextCheckAt, now)}</span>}
         </div>
-        {!isPublic && (
+        {!isPublic && account.provider !== "SAIA" && (
           <button className="button button-icon" aria-label={`Refresh ${account.label}`} title="Check usage now" onClick={() => void handleRefresh()} disabled={refreshing}>
             {refreshing ? <span className="spinner" /> : <Icon name="refresh" />}
           </button>

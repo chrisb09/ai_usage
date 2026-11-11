@@ -39,6 +39,8 @@ function compactQuota(quota: Quota): Record<string, unknown> {
   if (typeof balance === "number" && Number.isFinite(balance)) result.balanceUsd = balance
   if (typeof budget === "number" && Number.isFinite(budget)) result.budgetUsd = budget
   if (typeof quota.raw?.expiresAt === "string") result.expiresAt = quota.raw.expiresAt
+  if (typeof quota.raw?.requestLimit === "number") result.requestLimit = quota.raw.requestLimit
+  if (typeof quota.raw?.requestsRemaining === "number") result.requestsRemaining = quota.raw.requestsRemaining
   return result
 }
 
