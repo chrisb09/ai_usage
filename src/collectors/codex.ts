@@ -112,44 +112,83 @@ function windowResetAt(
   return null
 }
 
-export function parseCodexUsage(data: unknown, now = new Date()): Quota[] {
+function parseCreditsBalance(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+export function parseCodexUsage(
+  data: unknown,
+  now = new Date(),
+  grantCredits: number | null = null,
+): Quota[] {
   const root = asRecord(data)
   const rateLimit = asRecord(root?.rate_limit)
-  if (!rateLimit) return []
 
   const quotas: Quota[] = []
   const usedKeys = new Set<string>()
 
-  const addWindow = (
-    windowValue: unknown,
-    role: "primary" | "secondary",
-  ): void => {
-    const window = asRecord(windowValue)
-    if (!window) return
+  if (rateLimit) {
+    const addWindow = (
+      windowValue: unknown,
+      role: "primary" | "secondary",
+    ): void => {
+      const window = asRecord(windowValue)
+      if (!window) return
 
-    const label = `Codex — ${windowLabel(window.limit_window_seconds)}`
-    let key = quotaKey(label)
-    if (usedKeys.has(key)) key = `${key}-${role}`
-    usedKeys.add(key)
+      const label = `Codex — ${windowLabel(window.limit_window_seconds)}`
+      let key = quotaKey(label)
+      if (usedKeys.has(key)) key = `${key}-${role}`
+      usedKeys.add(key)
 
-    const usedPercent = asNumber(window.used_percent)
-    const windowSec = asNumber(window.limit_window_seconds)
+      const usedPercent = asNumber(window.used_percent)
+      const windowSec = asNumber(window.limit_window_seconds)
+      quotas.push({
+        key,
+        label,
+        remaining: usedPercent === null ? null : clampFraction((100 - usedPercent) / 100),
+        resetAt: windowResetAt(window, now),
+        raw: {
+          window: label,
+          windowSec,
+          usedPercent,
+          resetAfterSeconds: asNumber(window.reset_after_seconds),
+        },
+      })
+    }
+
+    addWindow(rateLimit.primary_window, "primary")
+    addWindow(rateLimit.secondary_window, "secondary")
+  }
+
+  const credits = asRecord(root?.credits)
+  const balance = credits ? parseCreditsBalance(credits.balance) : null
+  const unlimited = credits?.unlimited === true
+  if (credits && (credits.has_credits === true || unlimited || (balance !== null && balance !== 0))) {
     quotas.push({
-      key,
-      label,
-      remaining: usedPercent === null ? null : clampFraction((100 - usedPercent) / 100),
-      resetAt: windowResetAt(window, now),
+      key: "codex-credits",
+      label: "Codex — Credits",
+      remaining:
+        unlimited || balance === null
+          ? null
+          : grantCredits && grantCredits > 0
+            ? clampFraction(balance / grantCredits)
+            : null,
+      resetAt: null,
       raw: {
-        window: label,
-        windowSec,
-        usedPercent,
-        resetAfterSeconds: asNumber(window.reset_after_seconds),
+        balanceCredits: balance,
+        grantCredits: grantCredits ?? null,
+        approxLocalMessages: credits.approx_local_messages ?? null,
+        approxCloudMessages: credits.approx_cloud_messages ?? null,
+        overageLimitReached: credits.overage_limit_reached === true,
+        creditUnlimited: unlimited,
       },
     })
   }
-
-  addWindow(rateLimit.primary_window, "primary")
-  addWindow(rateLimit.secondary_window, "secondary")
 
   return quotas
 }
@@ -243,7 +282,11 @@ export class CodexCollector implements Collector {
         throw new Error(`HTTP ${response.status} ${response.statusText}`)
       }
 
-      const quotas = parseCodexUsage(await response.json())
+      const quotas = parseCodexUsage(
+        await response.json(),
+        new Date(),
+        this.config.codexCreditsGrant ?? null,
+      )
       if (quotas.length === 0) {
         throw new Error("No rate_limit in Codex usage response")
       }

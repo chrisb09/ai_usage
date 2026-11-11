@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 13px system-ui, sans-serif; min-width: 320px; padding: 12px; }
+    label { display: block; margin: 10px 0 4px; font-weight: 600; }
+    input { width: 100%; box-sizing: border-box; padding: 6px; }
+    .hint { color: #666; font-size: 12px; margin: 4px 0 10px; }
+    #saved { color: #1a7f37; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <label for="serverUrl">Dashboard server URL</label>
+  <input id="serverUrl" type="url" placeholder="https://usage.example.com" />
+  <div class="hint">Base URL of your ai-usage instance. The addon polls <code>/api/public/usage</code> and pushes cookies to <code>/api/credentials/mistral</code>.</div>
+
+  <label for="pushToken">Push token</label>
+  <input id="pushToken" type="password" placeholder="CREDENTIAL_PUSH_TOKEN from the server .env" />
+  <div class="hint">Shared secret from the server's <code>CREDENTIAL_PUSH_TOKEN</code>. Grants permission to update the Mistral session cookie only.</div>
+
+  <button id="save">Save</button>
+  <span id="saved" hidden>Saved ✓</span>
+
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,8 +1,14 @@
 import type { FastifyInstance } from "fastify"
 import { createHash, timingSafeEqual } from "node:crypto"
 import { z } from "zod"
-import { isHiddenProvider, type AppConfig } from "./config.js"
+import {
+  filterHiddenQuotas,
+  isHiddenProvider,
+  isHiddenQuota,
+  type AppConfig,
+} from "./config.js"
 import type { UsageDatabase } from "./db.js"
+import { MistralCodeCollector, persistMistralCookie } from "./collectors/mistral-code.js"
 import { maskAccount, sanitizeError, toPublicAccountKey } from "./mask.js"
 import { isStale } from "./policy.js"
 import type { UsageScheduler } from "./scheduler.js"
@@ -36,6 +42,33 @@ const refreshBodySchema = z
     accountKeys: z.array(z.string().min(1)).max(100).optional(),
   })
   .optional()
+
+const mistralPushSchema = z.object({
+  cookieName: z.string().regex(/^ory_session_[\w-]+$/),
+  cookieValue: z.string().min(32).max(8192),
+})
+
+export type MistralCookieValidator = (
+  cookie: string,
+) => Promise<{ ok: true } | { ok: false; error: string }>
+
+function defaultMistralValidator(config: AppConfig): MistralCookieValidator {
+  const collector = new MistralCodeCollector(config)
+  return async (cookie) => {
+    const result = await collector.collect(
+      {
+        accountKey: "mistral-code:default",
+        provider: "Mistral Code",
+        label: "Mistral Code",
+        collectorId: "mistral-code",
+        data: { cookie },
+      },
+      { reloadFromDisk: false },
+    )
+    if (result.error) return { ok: false, error: result.error }
+    return { ok: true }
+  }
+}
 
 function parseDate(value: string | undefined, field: string): string | undefined {
   if (!value) return undefined
@@ -83,6 +116,7 @@ export function registerApi(
     config: AppConfig
     db: UsageDatabase
     scheduler: UsageScheduler
+    mistralValidator?: MistralCookieValidator
   },
 ): void {
   const { config, db, scheduler } = deps
@@ -120,7 +154,10 @@ export function registerApi(
         isStale(lastSuccessAt, config.policy.maxIntervalSec, now),
     })
     const hidden = hiddenAccountKeys(config, db)
-    const views = allViews.filter((view) => !hidden.has(view.accountKey))
+    const views = filterHiddenQuotas(
+      config,
+      allViews.filter((view) => !hidden.has(view.accountKey)),
+    )
 
     const discovered = new Set(scheduler.getDiscoveredAccountKeys())
     const hasDue = allViews.some((view) => {
@@ -166,7 +203,10 @@ export function registerApi(
           isStale(lastSuccessAt, config.policy.maxIntervalSec, now),
       })
       const hidden = hiddenAccountKeys(config, db)
-      const views = allViews.filter((view) => !hidden.has(view.accountKey))
+      const views = filterHiddenQuotas(
+        config,
+        allViews.filter((view) => !hidden.has(view.accountKey)),
+      )
 
       const discovered = new Set(scheduler.getDiscoveredAccountKeys())
       const hasDue = allViews.some((view) => {
@@ -242,7 +282,10 @@ export function registerApi(
               bucketSec,
               limit: parsed.data.limit,
             })
-            .filter((point) => !hidden.has(point.accountKey))
+            .filter(
+              (point) =>
+                !hidden.has(point.accountKey) && !isHiddenQuota(config, point.quotaKey),
+            )
 
       return {
         points,
@@ -319,7 +362,10 @@ export function registerApi(
         })
 
         const publicPoints = points
-          .filter((point) => !hidden.has(point.accountKey))
+          .filter(
+            (point) =>
+              !hidden.has(point.accountKey) && !isHiddenQuota(config, point.quotaKey),
+          )
           .map((point) => ({
             ...point,
             accountKey: toPublicAccountKey(point.accountKey),
@@ -364,11 +410,87 @@ export function registerApi(
       const hidden = hiddenAccountKeys(config, db)
 
       return {
-        refreshed: summary.refreshed.filter(
-          (result) => !hidden.has(result.accountKey),
+        refreshed: filterHiddenQuotas(
+          config,
+          summary.refreshed.filter((result) => !hidden.has(result.accountKey)),
         ),
         skipped: summary.skipped.filter((skip) => !hidden.has(skip.accountKey)),
       }
+    },
+  )
+
+  app.post(
+    "/api/credentials/mistral",
+    {
+      config: {
+        rateLimit: {
+          max: 5,
+          timeWindow: "1 minute",
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!config.credentialPushToken) {
+        return reply.code(404).send({
+          error: { code: "not_found", message: "Credential push is disabled" },
+        })
+      }
+      const auth = request.headers.authorization
+      if (auth !== `Bearer ${config.credentialPushToken}`) {
+        return reply
+          .code(401)
+          .send({ error: { code: "unauthorized", message: "Invalid push token" } })
+      }
+
+      const parsed = mistralPushSchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.code(400).send({
+          error: {
+            code: "invalid_request",
+            message: "Expected { cookieName: ory_session_*, cookieValue }",
+          },
+        })
+      }
+      const { cookieName, cookieValue } = parsed.data
+      const candidates = [
+        ...new Set([`${cookieName}=${cookieValue}`, `${cookieName}="${cookieValue}"`]),
+      ]
+
+      const validator = deps.mistralValidator ?? defaultMistralValidator(config)
+      let lastError = "Cookie validation failed"
+      for (const candidate of candidates) {
+        const verdict = await validator(candidate)
+        if (verdict.ok) {
+          const persistError = await persistMistralCookie(
+            config.paths.mistralCodeConfig,
+            candidate,
+          )
+          if (persistError) {
+            return reply.code(500).send({
+              error: { code: "persist_failed", message: persistError },
+            })
+          }
+          const trigger: Extract<Trigger, "manual"> = "manual"
+          const summary = await scheduler.refresh(["mistral-code:default"], trigger)
+          const refreshed = summary.refreshed.find(
+            (result) => result.accountKey === "mistral-code:default",
+          )
+          return {
+            ok: true,
+            quotas:
+              refreshed?.quotas.map((quota) => ({
+                key: quota.key,
+                label: quota.label,
+                remaining: quota.remaining,
+                raw: quota.raw,
+              })) ?? [],
+            warning: refreshed?.warning ?? null,
+          }
+        }
+        lastError = verdict.error
+      }
+
+      return reply.code(422).send({ ok: false, error: lastError })
     },
   )
 

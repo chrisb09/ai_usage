@@ -11,7 +11,8 @@ JSON API for usage data, history, and manual checks.
   `google:user@example.com`, `codex:default`, `oneprovider:default`, or
   `openrouter:default`.
 - Providers listed in `HIDDEN_PROVIDERS` are still collected but omitted from
-  every usage and history response.
+  every usage and history response. Quota keys matching a case-insensitive
+  substring from `HIDDEN_QUOTAS` (e.g. `gemini`) are hidden the same way.
 
 ## Authentication
 
@@ -104,7 +105,7 @@ Account view fields:
 | Field | Description |
 |---|---|
 | `accountKey` | Stable key, e.g. `google:user@example.com` |
-| `provider` | `Google`, `OpenCode Go`, `Codex`, `OneProvider`, or `OpenRouter` |
+| `provider` | `Google`, `OpenCode Go`, `Codex`, `OneProvider`, `OpenRouter`, or `Mistral Code` |
 | `label` | Display name (email or masked API key) |
 | `active` | `false` for accounts that exist only in imported history |
 | `quotas` | Current quota windows, see below |
@@ -183,6 +184,31 @@ Response: `refreshed` (with `accountKey`, `provider`, `label`, `quotas`,
 `error`, `durationMs`) and `skipped` (with `accountKey`, `reason`). Accounts
 inside `MANUAL_COOLDOWN_SEC` (default 60) are skipped. This endpoint is
 rate-limited to 10 requests per minute.
+
+## `POST /api/credentials/mistral`
+
+Receives a fresh Mistral `ory_session_*` cookie from the
+[browser addon](../integrations/browser-addon/) and reconnects the dashboard.
+Authenticated with `Authorization: Bearer $CREDENTIAL_PUSH_TOKEN`; the endpoint
+is disabled (404) when no token is configured.
+
+```bash
+curl -X POST https://usage.example.com/api/credentials/mistral \
+  -H 'authorization: Bearer $CREDENTIAL_PUSH_TOKEN' \
+  -H 'content-type: application/json' \
+  -d '{"cookieName":"ory_session_x","cookieValue":"..."}'
+```
+
+The server validates the cookie with a live collection attempt (plain and
+quoted forms), persists it to `MISTRAL_CODE_CONFIG_PATH` atomically, and
+triggers a refresh. Responses:
+
+- `200` — `{"ok":true,"quotas":[...],"warning":null}` when the cookie works.
+- `422` — `{"ok":false,"error":"..."}` when validation failed; the stored
+  cookie is left untouched.
+- `401` / `400` / `404` — bad token, malformed body, or disabled endpoint.
+
+Cookie values are never echoed in responses or logs.
 
 ## `GET /api/health`
 

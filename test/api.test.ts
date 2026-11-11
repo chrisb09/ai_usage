@@ -1,7 +1,8 @@
 import Fastify from "fastify"
 import rateLimit from "@fastify/rate-limit"
+import { rm } from "node:fs/promises"
 import { afterEach, describe, expect, it } from "vitest"
-import { registerApi } from "../src/api.js"
+import { registerApi, type MistralCookieValidator } from "../src/api.js"
 import { loadConfig } from "../src/config.js"
 import { UsageDatabase } from "../src/db.js"
 import type { AccountRef } from "../src/domain.js"
@@ -33,8 +34,23 @@ function seedAccount(db: UsageDatabase, ref: AccountRef, remaining: number): voi
   })
 }
 
+function seedQuota(db: UsageDatabase, ref: AccountRef, quota: { key: string; label: string; remaining: number }): void {
+  db.insertImportedCheck({
+    ref,
+    checkedAt: "2026-10-01T00:05:00.000Z",
+    quotas: [quota],
+  })
+}
+
 async function buildTestApp(
-  options: { extraAccounts?: AccountRef[]; hiddenProviders?: string } = {},
+  options: {
+    extraAccounts?: AccountRef[]
+    hiddenProviders?: string
+    hiddenQuotas?: string
+    pushToken?: string
+    mistralValidator?: MistralCookieValidator
+    schedulerRefresh?: (accountKeys: string[] | null) => Promise<unknown>
+  } = {},
 ) {
   const config = loadConfig({
     ...process.env,
@@ -42,6 +58,9 @@ async function buildTestApp(
     OPENCODE_CONFIG_DIR: "/nonexistent/opencode",
     CODEX_HOME: "/nonexistent/codex",
     HIDDEN_PROVIDERS: options.hiddenProviders ?? "",
+    HIDDEN_QUOTAS: options.hiddenQuotas ?? "",
+    MISTRAL_CODE_CONFIG_PATH: "/tmp/opencode/test-mistral.json",
+    CREDENTIAL_PUSH_TOKEN: options.pushToken ?? "",
   })
   const db = new UsageDatabase(":memory:")
   const ref: AccountRef = {
@@ -55,27 +74,38 @@ async function buildTestApp(
   seedAccount(db, ref, 0.75)
   for (const extra of options.extraAccounts ?? []) seedAccount(db, extra, 0.1)
 
+  const refreshCalls: Array<string[] | null> = []
   const scheduler = {
     isRefreshing: () => false,
     getLastTickAt: () => "2026-10-22T12:00:00.000Z",
     isTicking: () => false,
     getDiscoveredAccountKeys: () => refs.map((account) => account.accountKey),
     triggerDue: async () => undefined,
-    refresh: async () => ({
-      refreshed: [],
-      skipped: [{ accountKey: ref.accountKey, reason: "Manual refresh cooldown" }],
-    }),
+    refresh: async (accountKeys: string[] | null) => {
+      refreshCalls.push(accountKeys)
+      return (
+        options.schedulerRefresh?.(accountKeys) ?? {
+          refreshed: [],
+          skipped: [{ accountKey: ref.accountKey, reason: "Manual refresh cooldown" }],
+        }
+      )
+    },
   } as unknown as UsageScheduler
 
   const app = Fastify()
   await app.register(rateLimit, { global: false })
-  registerApi(app, { config, db, scheduler })
+  registerApi(app, {
+    config,
+    db,
+    scheduler,
+    mistralValidator: options.mistralValidator,
+  })
   cleanup.push(async () => {
     await app.close()
     db.close()
   })
 
-  return { app, ref }
+  return { app, db, ref, refreshCalls }
 }
 
 describe("HTTP API", () => {
@@ -218,5 +248,175 @@ describe("HTTP API", () => {
       })
     ).json()
     expect(publicHidden.points).toEqual([])
+  })
+
+  it("hides quotas matching HIDDEN_QUOTAS across usage and history", async () => {
+    const { app, db, ref } = await buildTestApp({ hiddenQuotas: "Gemini" })
+    seedQuota(db, ref, { key: "claude-weekly", label: "Claude — Weekly", remaining: 0.5 })
+
+    const usage = (await app.inject({ method: "GET", url: "/api/usage" })).json()
+    expect(usage.accounts).toHaveLength(1)
+    expect(usage.accounts[0].quotas.map((quota: { key: string }) => quota.key)).toEqual([
+      "claude-weekly",
+    ])
+
+    const publicUsage = (await app.inject({ method: "GET", url: "/api/public/usage" })).json()
+    expect(publicUsage.accounts[0].quotas.map((quota: { key: string }) => quota.key)).toEqual([
+      "claude-weekly",
+    ])
+
+    const history = (
+      await app.inject({ method: "GET", url: "/api/history?from=2026-09-01T00:00:00Z" })
+    ).json()
+    expect(
+      history.points.every((point: { quotaKey: string }) => point.quotaKey !== "gemini-weekly"),
+    ).toBe(true)
+    expect(history.points.length).toBeGreaterThan(0)
+
+    const hiddenQuotaHistory = (
+      await app.inject({
+        method: "GET",
+        url: "/api/history?quotaKey=gemini-weekly&from=2026-09-01T00:00:00Z",
+      })
+    ).json()
+    expect(hiddenQuotaHistory.points).toEqual([])
+
+    const publicHistory = (
+      await app.inject({ method: "GET", url: "/api/public/history?from=2026-09-01T00:00:00Z" })
+    ).json()
+    expect(
+      publicHistory.points.every(
+        (point: { quotaKey: string }) => point.quotaKey !== "gemini-weekly",
+      ),
+    ).toBe(true)
+  })
+
+  it("drops accounts whose quotas are all hidden", async () => {
+    const { app, ref } = await buildTestApp({
+      hiddenQuotas: "gemini",
+      schedulerRefresh: async () => ({
+        refreshed: [
+          {
+            accountKey: ref.accountKey,
+            provider: "Google",
+            label: ref.label,
+            quotas: [
+              { key: "gemini-weekly", label: "Gemini — Weekly", remaining: 0.4, resetAt: null },
+            ],
+            error: null,
+            warning: null,
+            durationMs: 10,
+          },
+        ],
+        skipped: [],
+      }),
+    })
+
+    const usage = (await app.inject({ method: "GET", url: "/api/usage" })).json()
+    expect(usage.accounts).toEqual([])
+
+    const refresh = await app.inject({ method: "POST", url: "/api/refresh", payload: {} })
+    expect(refresh.json().refreshed).toEqual([])
+  })
+})
+
+describe("Mistral credential push", () => {
+  const cookieValue = "MTc5Mzk3NTAyOHxYQnVvRWZyYUxTSVlXWnVQdkxsNXpIVzN1VE9zdGVzdA=="
+  const push = async (
+    app: Awaited<ReturnType<typeof buildTestApp>>["app"],
+    body: unknown,
+    token = "test-token",
+  ) =>
+    app.inject({
+      method: "POST",
+      url: "/api/credentials/mistral",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      payload: body as Record<string, unknown>,
+    })
+
+  afterEach(async () => {
+    await rm("/tmp/opencode/test-mistral.json", { force: true })
+  })
+
+  it("is disabled without a push token", async () => {
+    const { app } = await buildTestApp()
+    const response = await push(app, { cookieName: "ory_session_x", cookieValue })
+    expect(response.statusCode).toBe(404)
+  })
+
+  it("rejects invalid tokens and bodies", async () => {
+    const { app } = await buildTestApp({ pushToken: "test-token" })
+    expect((await push(app, { cookieName: "ory_session_x", cookieValue }, "wrong")).statusCode).toBe(401)
+    expect(
+      (await push(app, { cookieName: "other_cookie", cookieValue })).statusCode,
+    ).toBe(400)
+    expect((await push(app, { cookieName: "ory_session_x", cookieValue: "short" })).statusCode).toBe(400)
+  })
+
+  it("validates, persists, and refreshes on success", async () => {
+    const seen: string[] = []
+    const validator: MistralCookieValidator = async (cookie) => {
+      seen.push(cookie)
+      return { ok: true }
+    }
+    const { app, refreshCalls } = await buildTestApp({
+      pushToken: "test-token",
+      mistralValidator: validator,
+      schedulerRefresh: () => ({
+        refreshed: [
+          {
+            accountKey: "mistral-code:default",
+            provider: "Mistral Code",
+            label: "Mistral Code",
+            quotas: [{ key: "mistral-code", label: "Mistral Code — Monthly", remaining: 0.99, resetAt: null, raw: {} }],
+            error: null,
+            warning: null,
+          },
+        ],
+        skipped: [],
+      }),
+    })
+
+    const response = await push(app, { cookieName: "ory_session_x", cookieValue })
+    expect(response.statusCode).toBe(200)
+    const body = response.json()
+    expect(body.ok).toBe(true)
+    expect(body.quotas[0].remaining).toBeCloseTo(0.99)
+    expect(seen).toEqual([`ory_session_x=${cookieValue}`])
+    expect(refreshCalls).toEqual([["mistral-code:default"]])
+    expect(JSON.stringify(body)).not.toContain(cookieValue)
+
+    const { readFile, stat } = await import("node:fs/promises")
+    const stored = JSON.parse(await readFile("/tmp/opencode/test-mistral.json", "utf8"))
+    expect(stored.orySessionCookie).toBe(`ory_session_x=${cookieValue}`)
+    expect(((await stat("/tmp/opencode/test-mistral.json")).mode & 0o777)).toBe(0o600)
+  })
+
+  it("retries with a quoted cookie when the plain form fails", async () => {
+    const seen: string[] = []
+    const validator: MistralCookieValidator = async (cookie) => {
+      seen.push(cookie)
+      return cookie.includes('"') ? { ok: true } : { ok: false, error: "Session expired" }
+    }
+    const { app } = await buildTestApp({ pushToken: "test-token", mistralValidator: validator })
+
+    const response = await push(app, { cookieName: "ory_session_x", cookieValue })
+    expect(response.statusCode).toBe(200)
+    expect(seen).toEqual([`ory_session_x=${cookieValue}`, `ory_session_x="${cookieValue}"`])
+  })
+
+  it("returns 422 when validation fails for every variant", async () => {
+    const validator: MistralCookieValidator = async () => ({
+      ok: false,
+      error: "Session expired or unauthorized (copy a fresh ory_session_* cookie into mistral.json)",
+    })
+    const { app } = await buildTestApp({ pushToken: "test-token", mistralValidator: validator })
+
+    const response = await push(app, { cookieName: "ory_session_x", cookieValue })
+    expect(response.statusCode).toBe(422)
+    const body = response.json()
+    expect(body.ok).toBe(false)
+    expect(body.error).toContain("Session expired")
+    expect(JSON.stringify(body)).not.toContain(cookieValue)
   })
 })

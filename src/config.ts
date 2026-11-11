@@ -45,11 +45,17 @@ const envSchema = z.object({
   VNAI_PRO_AUTH_PATH: optionalString,
   GCP_BILLING_CONFIG_PATH: optionalString,
   SAIA_INGEST_TOKEN: optionalString.refine((value) => !value || value.length >= 32, "SAIA_INGEST_TOKEN must be at least 32 characters"),
+  MISTRAL_CODE_CONFIG_PATH: optionalString,
+  CURL_IMPERSONATE_PATH: optionalString,
+  CURL_IMPERSONATE_TARGET: optionalString,
+  CREDENTIAL_PUSH_TOKEN: optionalString,
   HIDDEN_PROVIDERS: optionalString,
+  HIDDEN_QUOTAS: optionalString,
   CODEX_AUTH_PATH: optionalString,
   CODEX_REFRESH: boolStringDefaultTrue,
   CODEX_CLIENT_ID: optionalString,
   CODEX_REFRESH_SKEW_SEC: z.coerce.number().int().min(0).default(300),
+  CODEX_CREDITS_GRANT: z.coerce.number().min(0).optional(),
   INCLUDE_DISABLED: boolString,
 })
 
@@ -72,6 +78,7 @@ export interface CredentialPaths {
   vnaiProAuth: string
   codexAuth: string
   gcpBillingConfig: string
+  mistralCodeConfig: string
 }
 
 export interface AppConfig {
@@ -86,10 +93,15 @@ export interface AppConfig {
   includeDisabled: boolean
   hiddenProviders: string[]
   saiaIngestToken: string | undefined
+  hiddenQuotas: string[]
+  curlImpersonatePath: string
+  curlImpersonateTarget: string
+  credentialPushToken: string | undefined
   antigravityClientSecret: string | undefined
   codexRefresh: boolean
   codexClientId: string | undefined
   codexRefreshSkewSec: number
+  codexCreditsGrant: number | undefined
   policy: PolicyConfig
   paths: CredentialPaths
 }
@@ -141,10 +153,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .map((provider) => provider.trim())
       .filter((provider) => provider.length > 0),
     saiaIngestToken: parsed.SAIA_INGEST_TOKEN,
+    hiddenQuotas: (parsed.HIDDEN_QUOTAS ?? "")
+      .split(",")
+      .map((quota) => quota.trim())
+      .filter((quota) => quota.length > 0),
+    curlImpersonatePath: parsed.CURL_IMPERSONATE_PATH || "curl-impersonate",
+    curlImpersonateTarget: parsed.CURL_IMPERSONATE_TARGET || "firefox135",
+    credentialPushToken: parsed.CREDENTIAL_PUSH_TOKEN,
     antigravityClientSecret: parsed.ANTIGRAVITY_CLIENT_SECRET,
     codexRefresh: parsed.CODEX_REFRESH,
     codexClientId: parsed.CODEX_CLIENT_ID,
     codexRefreshSkewSec: parsed.CODEX_REFRESH_SKEW_SEC,
+    codexCreditsGrant: parsed.CODEX_CREDITS_GRANT,
     policy: {
       minIntervalSec: parsed.MIN_INTERVAL_SEC,
       maxIntervalSec: parsed.MAX_INTERVAL_SEC,
@@ -166,6 +186,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       vnaiProAuth: parsed.VNAI_PRO_AUTH_PATH || parsed.OPENCODE_AUTH_PATH || opencodeAuthPath(env),
       codexAuth: parsed.CODEX_AUTH_PATH || join(codexDir, "auth.json"),
       gcpBillingConfig: parsed.GCP_BILLING_CONFIG_PATH || join(opencodeDir, "gcp-billing.json"),
+      mistralCodeConfig:
+        parsed.MISTRAL_CODE_CONFIG_PATH || join(opencodeDir, "mistral.json"),
     },
   }
 }
@@ -174,4 +196,25 @@ export function isHiddenProvider(config: AppConfig, provider: string): boolean {
   return config.hiddenProviders.some(
     (hidden) => hidden.toLowerCase() === provider.toLowerCase(),
   )
+}
+
+export function isHiddenQuota(config: AppConfig, quotaKey: string): boolean {
+  const key = quotaKey.toLowerCase()
+  return config.hiddenQuotas.some((hidden) => key.includes(hidden.toLowerCase()))
+}
+
+/**
+ * Strips hidden quotas from items with a `quotas` list. Items whose quotas are
+ * all hidden are dropped; items without any quotas are kept so error states
+ * stay visible.
+ */
+export function filterHiddenQuotas<T extends { quotas: { key: string }[] }>(
+  config: AppConfig,
+  items: T[],
+): T[] {
+  return items.flatMap((item) => {
+    const quotas = item.quotas.filter((quota) => !isHiddenQuota(config, quota.key))
+    if (quotas.length === 0 && item.quotas.length > 0) return []
+    return [{ ...item, quotas }]
+  })
 }
