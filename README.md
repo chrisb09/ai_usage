@@ -173,7 +173,10 @@ complete `cookie` headers are supported too. All three usage meters—monthly,
 weekly, and 5-hour—appear on the account card and individual history. The
 overview uses the monthly meter, falling back to weekly when monthly is absent.
 An expired session is reported as needing login; replace the console session
-in the credential file after signing in again.
+in the credential file after signing in again. If you sign in through OpenCode
+Console, the `opencode` access token from `opencode auth export` is also
+accepted as the `consoleSession` value; it has the same lifetime as the console
+session and must be refreshed in the credential file when it rotates.
 
 ### Mistral Code monthly usage
 
@@ -204,9 +207,11 @@ polls the dashboard, detects an expired Mistral session, pushes the fresh
 `POST /api/credentials/mistral` (authenticated with `CREDENTIAL_PUSH_TOKEN`),
 and clears its badge once the server validates and refreshes the account.
 The endpoint validates the cookie with a live collection attempt before
-persisting it, so invalid pushes never overwrite a working session.
-`CURL_IMPERSONATE_PATH` overrides the bundled binary path and
-`CURL_IMPERSONATE_TARGET` the fingerprint target (default `firefox135`).
+persisting it, so invalid pushes never overwrite a working session. Upstream
+`429`/`5xx` responses and timeouts are reported as temporary: the existing
+cookie is left in place and the addon retries later instead of treating the
+session as expired. `CURL_IMPERSONATE_PATH` overrides the bundled binary path
+and `CURL_IMPERSONATE_TARGET` the fingerprint target (default `firefox135`).
 
 The Codex directory is mounted read-write because the server refreshes the
 Codex OAuth access token and writes rotated tokens back to `auth.json`, the

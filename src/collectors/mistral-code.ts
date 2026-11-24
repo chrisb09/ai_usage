@@ -226,6 +226,12 @@ export class MistralCodeCollector implements Collector {
       if (status === 403) {
         throw new Error("Blocked by a Cloudflare challenge (curl-impersonate target may be outdated)")
       }
+      if (status === 429) {
+        throw new Error("Mistral rate limited the request (HTTP 429)")
+      }
+      if (status >= 500) {
+        throw new Error(`Mistral temporarily unavailable (HTTP ${status})`)
+      }
       if (status !== 200) {
         throw new Error(`HTTP ${status}`)
       }

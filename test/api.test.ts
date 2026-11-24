@@ -419,4 +419,22 @@ describe("Mistral credential push", () => {
     expect(body.error).toContain("Session expired")
     expect(JSON.stringify(body)).not.toContain(cookieValue)
   })
+
+  it("returns 503 and stops retrying when Mistral is temporarily unavailable", async () => {
+    const seen: string[] = []
+    const validator: MistralCookieValidator = async (cookie) => {
+      seen.push(cookie)
+      return { ok: false, error: "Mistral temporarily unavailable (HTTP 503)" }
+    }
+    const { app } = await buildTestApp({ pushToken: "test-token", mistralValidator: validator })
+
+    const response = await push(app, { cookieName: "ory_session_x", cookieValue })
+    expect(response.statusCode).toBe(503)
+    const body = response.json()
+    expect(body.ok).toBe(false)
+    expect(body.retryable).toBe(true)
+    expect(body.error).toContain("temporarily unavailable")
+    expect(seen).toEqual([`ory_session_x=${cookieValue}`])
+    expect(JSON.stringify(body)).not.toContain(cookieValue)
+  })
 })

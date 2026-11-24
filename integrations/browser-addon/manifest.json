@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Usage Companion",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Watches the ai-usage dashboard and reconnects expired Mistral sessions by pushing fresh session cookies.",
   "permissions": ["cookies", "alarms", "notifications", "storage"],
   "host_permissions": ["https://chat.mistral.ai/*"],

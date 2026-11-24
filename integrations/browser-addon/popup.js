@@ -2,6 +2,8 @@ const api = typeof browser !== "undefined" ? browser : chrome
 
 const NEEDS_LOGIN =
   /expired|unauthorized|forbidden|\b401\b|\b403\b|missing .*(cookie|token)|codex login/i
+const TRANSIENT =
+  /HTTP\s+(?:429|5\d\d)\b|temporarily unavailable|rate limited|timed out|timeout|ECONN|fetch failed/i
 
 async function config() {
   const stored = await api.storage.local.get(["serverUrl", "pushToken"])
@@ -32,6 +34,13 @@ async function renderStatus() {
       el.className = "status warn"
       return
     }
+    if (account.lastError && TRANSIENT.test(account.lastError)) {
+      el.textContent = "Mistral temporarily unavailable — retrying automatically."
+      el.className = "status warn"
+      detail.hidden = false
+      detail.textContent = account.lastError
+      return
+    }
     if ((account.lastError && NEEDS_LOGIN.test(account.lastError)) || account.stale) {
       el.textContent = "Mistral session needs attention."
       el.className = "status bad"
@@ -41,10 +50,18 @@ async function renderStatus() {
       }
       return
     }
+    if (account.lastError) {
+      el.textContent = "Mistral error — see details."
+      el.className = "status bad"
+      detail.hidden = false
+      detail.textContent = account.lastError
+      return
+    }
     const quota = (account.quotas || [])[0]
     const used = quota && quota.raw && typeof quota.raw.usagePercent === "number"
       ? ` — ${quota.raw.usagePercent}% used`
       : ""
+    detail.hidden = true
     el.textContent = `Mistral session healthy${used}.`
     el.className = "status ok"
   } catch (error) {

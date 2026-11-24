@@ -8,6 +8,8 @@ const api = typeof browser !== "undefined" ? browser : chrome
 const MISTRAL_COOKIE_DOMAIN = "mistral.ai"
 const NEEDS_LOGIN =
   /expired|unauthorized|forbidden|\b401\b|\b403\b|missing .*(cookie|token)|codex login/i
+const TRANSIENT =
+  /HTTP\s+(?:429|5\d\d)\b|temporarily unavailable|rate limited|timed out|timeout|ECONN|fetch failed/i
 const POLL_ALARM = "ai-usage-poll"
 const POLL_MINUTES = 15
 
@@ -38,9 +40,11 @@ async function fetchStatus(serverUrl) {
   const body = await response.json()
   const account = (body.accounts || []).find((a) => a.provider === "Mistral Code")
   if (!account) return "missing"
+  if (account.lastError && TRANSIENT.test(account.lastError)) return "temporary"
   if ((account.lastError && NEEDS_LOGIN.test(account.lastError)) || account.stale) {
     return "needs-login"
   }
+  if (account.lastError) return "attention"
   return "ok"
 }
 
@@ -109,6 +113,18 @@ async function check(autoFix = true) {
     return "ok"
   }
 
+  if (state === "temporary") {
+    // Do not rotate the cookie for an upstream 5xx/timeout; the existing
+    // cookie is likely fine and a push would just fail validation.
+    await setBadge(false, "AI Usage: Mistral temporarily unavailable — will retry")
+    return "temporary"
+  }
+
+  if (state === "attention") {
+    await setBadge(true, "AI Usage: Mistral error — check the dashboard")
+    return "attention"
+  }
+
   await setBadge(
     true,
     state === "missing"
@@ -124,6 +140,15 @@ async function check(autoFix = true) {
         await resetNotified()
         await setBadge(false, "AI Usage: Mistral session reconnected")
         return "ok"
+      }
+      const pushError = result.body && result.body.error
+      const transient =
+        result.status === 503 ||
+        result.body?.retryable === true ||
+        (typeof pushError === "string" && TRANSIENT.test(pushError))
+      if (transient) {
+        await setBadge(false, "AI Usage: Mistral temporarily unavailable — will retry")
+        return "temporary"
       }
     }
   }
@@ -149,14 +174,10 @@ api.cookies.onChanged.addListener(async (change) => {
   const cfg = await config()
   if (!cfg.serverUrl || !cfg.pushToken) return
 
-  // Only push genuinely new cookie values (the site may rotate often).
-  const { lastPushedCookie } = await api.storage.local.get({ lastPushedCookie: "" })
-  const pair = `${cookie.name}=${cookie.value}`
-  if (pair === lastPushedCookie) return
-  await api.storage.local.set({ lastPushedCookie: pair })
-
-  await pushCookie(cfg, { cookieName: cookie.name, cookieValue: cookie.value })
-  check()
+  // A rotated cookie does not mean the dashboard needs it. check() reads the
+  // current cookie and only pushes when the server actually needs a session,
+  // so healthy or temporarily unavailable accounts are left alone.
+  await check()
 })
 
 api.runtime.onInstalled.addListener(() => check())

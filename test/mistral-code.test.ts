@@ -102,6 +102,15 @@ describe("Mistral Code collector", () => {
     expect(JSON.stringify(result)).not.toContain(cookie)
   })
 
+  it("labels upstream 5xx and 429 as transient without leaking the cookie", async () => {
+    for (const status of [429, 503]) {
+      const collector = new MistralCodeCollector(config, async () => ({ status, body: "" }))
+      const result = await collector.collect(refWithCookie())
+      expect(result.error).toMatch(status === 429 ? /rate limited/ : /temporarily unavailable/)
+      expect(JSON.stringify(result)).not.toContain(cookie)
+    }
+  })
+
   it("distinguishes a Cloudflare challenge from an app-level 403", async () => {
     const challenge = new MistralCodeCollector(
       config,

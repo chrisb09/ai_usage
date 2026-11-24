@@ -70,6 +70,12 @@ function defaultMistralValidator(config: AppConfig): MistralCookieValidator {
   }
 }
 
+function isTransientMistralError(message: string): boolean {
+  return /HTTP\s+(?:429|5\d\d)\b|temporarily unavailable|rate limited|timed out|timeout|ECONN|fetch failed/i.test(
+    message,
+  )
+}
+
 function parseDate(value: string | undefined, field: string): string | undefined {
   if (!value) return undefined
   const ms = Date.parse(value)
@@ -488,9 +494,13 @@ export function registerApi(
           }
         }
         lastError = verdict.error
+        if (isTransientMistralError(lastError)) break
       }
 
-      return reply.code(422).send({ ok: false, error: lastError })
+      const transient = isTransientMistralError(lastError)
+      return reply
+        .code(transient ? 503 : 422)
+        .send({ ok: false, error: lastError, retryable: transient })
     },
   )
 

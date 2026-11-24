@@ -8,16 +8,22 @@ from your browser, and clears its badge once the server confirms it works.
 ## How it works
 
 1. Every 15 minutes the addon polls `<server>/api/public/usage` and checks the
-   Mistral Code account for `needs login` / stale state.
-2. On trouble it reads the current `ory_session_*` cookie for chat.mistral.ai
-   from your browser and pushes it to `<server>/api/credentials/mistral`.
+   Mistral Code account for `needs login` / stale state. It also re-checks when
+   the browser rotates its `ory_session_*` cookie.
+2. Only when the account actually needs a session does it read the current
+   cookie for chat.mistral.ai and push it to
+   `<server>/api/credentials/mistral`. Healthy accounts and ordinary cookie
+   rotation do not trigger a push.
 3. The server validates the cookie with a live collection attempt, stores it in
    `mistral.json`, and refreshes the account. If validation succeeds the badge
    clears — usually **without you logging in again**, because your browser
    session typically outlives the server-side copy.
-4. Only when the browser session itself has expired do you get a single
+4. An upstream `429`/`5xx` or timeout is shown as **temporarily unavailable**;
+   the addon keeps the existing cookie and retries later instead of treating it
+   as an expired login.
+5. Only when the browser session itself has expired do you get a single
    notification. Log in to chat.mistral.ai as usual; the addon watches for the
-   new `ory_session_*` cookie and pushes it automatically.
+   new `ory_session_*` cookie and reconnects automatically.
 
 The badge is a red `!` on the toolbar icon; the popup shows the current state
 and offers a manual "Push cookie now" button.
