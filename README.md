@@ -152,13 +152,27 @@ containing `{"apiKey":"sk-your-key"}`. Its default is the shared store.
 The configured keys stay out of usage responses and logs; only masked labels
 and balance/quota information are exposed.
 
-### OpenCode Go console access
+### OpenCode Go usage
 
-OpenCode Go usage is read from `https://opencode.ai/console/api/go/status` using
-the console session cookie and an organization/workspace ID. The inference API
-key in the shared auth store does not grant access to these subscription meters.
-Place the same `opencode-go.json` used by `check_usage` in
+OpenCode Go usage is preferably read from the official
+`GET https://opencode.ai/inference/go/v1/usage` endpoint with a personal API key
+that has **Usage: Read**. Create the key in the OpenCode Console under
+**Account › Personal API keys** and place it in `opencode-go.json` in
 `${OPENCODE_CONFIG_HOST}` (or set `OPENCODE_GO_CONFIG_PATH` to a mounted file):
+
+```json
+{
+  "apiKey": "oc_sk_your-usage-key",
+  "email": "you@example.com"
+}
+```
+
+The response provides the 5-hour rolling, weekly, and monthly meters. A
+dedicated usage-read key keeps the dashboard's access narrow; `accessToken` is
+accepted as an alias for `apiKey`.
+
+A console session cookie is still supported as a fallback. Place the same
+`opencode-go.json` used by `check_usage` in `${OPENCODE_CONFIG_HOST}`:
 
 ```json
 {
@@ -168,15 +182,12 @@ Place the same `opencode-go.json` used by `check_usage` in
 }
 ```
 
-`workspaceId` is accepted as an alias for `orgId`. Existing `authCookie` and
-complete `cookie` headers are supported too. All three usage meters—monthly,
+`workspaceId` is accepted as an alias for `orgId`, and existing `authCookie`
+and complete `cookie` headers are supported too. All three usage meters—monthly,
 weekly, and 5-hour—appear on the account card and individual history. The
 overview uses the monthly meter, falling back to weekly when monthly is absent.
-An expired session is reported as needing login; replace the console session
-in the credential file after signing in again. If you sign in through OpenCode
-Console, the `opencode` access token from `opencode auth export` is also
-accepted as the `consoleSession` value; it has the same lifetime as the console
-session and must be refreshed in the credential file when it rotates.
+When both are present, `apiKey` is preferred. An expired API key or console
+session is reported as needing login; replace it in the credential file.
 
 ### Mistral Code monthly usage
 
@@ -570,7 +581,8 @@ docker compose build
 - Codex access tokens are refreshed from `auth.json` shortly before expiry and
   the rotated tokens are written back atomically. A per-account warning badge
   appears if the write-back fails.
-- OpenCode Go sessions cannot be refreshed automatically; an expired cookie is
+- OpenCode Go can use a personal API key with Usage: Read. The older console
+  session fallback cannot be refreshed automatically; an expired session is
   reported as `needs login`.
 - Logs redact authorization and cookie headers.
 - API responses include account labels, quota percentages, reset times, and

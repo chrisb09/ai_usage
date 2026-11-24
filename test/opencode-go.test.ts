@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { loadConfig } from "../src/config.js"
-import { OpenCodeGoCollector, openCodeGoCookie, parseOpenCodeGoStatus } from "../src/collectors/opencode-go.js"
+import { OpenCodeGoCollector, openCodeGoCookie, parseOpenCodeGoStatus, parseOpenCodeGoUsage } from "../src/collectors/opencode-go.js"
 import * as http from "../src/collectors/http.js"
 import * as util from "../src/collectors/util.js"
 
@@ -50,5 +50,74 @@ describe("OpenCode Go status collection", () => {
   it("rejects missing or malformed meters instead of displaying a full allowance", () => {
     expect(() => parseOpenCodeGoStatus({ access: { meters: {} } })).toThrow("Could not parse usage meters")
     expect(() => parseOpenCodeGoStatus({ access: { meters: { month: { limitMicroCents: "bad" } } } })).toThrow("Invalid OpenCode Go monthly")
+  })
+})
+
+describe("OpenCode Go usage API", () => {
+  it("maps the documented usage response onto the existing quota keys", () => {
+    const quotas = parseOpenCodeGoUsage({ usage: {
+      rolling: { status: "ok", percent: 12, resetsAt: "2026-11-24T14:00:00Z" },
+      weekly: { status: "ok", percent: 34, resetsAt: "2026-11-30T00:00:00Z" },
+      monthly: { status: "rate-limited", percent: 56, resetsAt: "2026-12-01T00:00:00Z" },
+    } })
+
+    expect(quotas.map((quota) => quota.key)).toEqual([
+      "opencode-go-monthly",
+      "opencode-go-weekly",
+      "opencode-go-5h",
+    ])
+    expect(quotas[0]?.remaining).toBeCloseTo(0.44)
+    expect(quotas[1]?.remaining).toBeCloseTo(0.66)
+    expect(quotas[2]?.remaining).toBeCloseTo(0.88)
+    expect(quotas[2]?.resetAt).toBe("2026-11-24T14:00:00.000Z")
+    expect(quotas[0]?.raw).toEqual({ usedPercent: 56, status: "rate-limited", windowSec: 2_592_000 })
+  })
+
+  it("uses the official endpoint and redacts the API key", async () => {
+    const apiKey = "oc_sk_test_usage_key"
+    vi.spyOn(util, "readJsonFile").mockResolvedValue({ ok: true, value: { apiKey, email: "test@example.com" } })
+    const fetch = vi.spyOn(http, "fetchWithTimeout").mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      redirected: false,
+      text: async () => "",
+      json: async () => ({ usage: {
+        rolling: { status: "ok", percent: 10, resetsAt: "2026-11-24T14:00:00Z" },
+        weekly: { status: "ok", percent: 20, resetsAt: "2026-11-30T00:00:00Z" },
+        monthly: { status: "ok", percent: 30, resetsAt: "2026-12-01T00:00:00Z" },
+      } }),
+    })
+    const collector = new OpenCodeGoCollector(config)
+    const refs = await collector.discover()
+    const result = await collector.collect(refs[0]!)
+
+    expect(result.error).toBeNull()
+    expect(result.quotas[0]?.remaining).toBeCloseTo(0.7)
+    expect(fetch).toHaveBeenCalledWith(
+      "https://opencode.ai/inference/go/v1/usage",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${apiKey}` }) }),
+      config.requestTimeoutMs,
+    )
+    expect(JSON.stringify(result)).not.toContain(apiKey)
+  })
+
+  it("reports an invalid API key without leaking it", async () => {
+    const apiKey = "oc_sk_test_invalid_key"
+    vi.spyOn(util, "readJsonFile").mockResolvedValue({ ok: true, value: { apiKey } })
+    vi.spyOn(http, "fetchWithTimeout").mockResolvedValue({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      redirected: false,
+      text: async () => "",
+      json: async () => ({}),
+    })
+    const collector = new OpenCodeGoCollector(config)
+    const refs = await collector.discover()
+    const result = await collector.collect(refs[0]!)
+
+    expect(result.error).toContain("invalid or expired")
+    expect(JSON.stringify(result)).not.toContain(apiKey)
   })
 })

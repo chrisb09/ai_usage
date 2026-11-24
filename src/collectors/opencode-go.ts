@@ -13,11 +13,11 @@ import {
   successResult,
 } from "./util.js"
 
-interface OpenCodeGoData {
-  cookie: string
-  workspaceId: string
-  email: string
-}
+type OpenCodeGoData =
+  | { mode: "console"; cookie: string; workspaceId: string }
+  | { mode: "apiKey"; apiKey: string }
+
+const USAGE_API_URL = "https://opencode.ai/inference/go/v1/usage"
 
 function meterNumber(value: unknown): number | null {
   if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null
@@ -48,6 +48,37 @@ export function parseOpenCodeGoStatus(data: unknown): Quota[] {
     })
   }
   if (quotas.length === 0) throw new Error("Could not parse usage meters from OpenCode Go status")
+  return quotas
+}
+
+export function parseOpenCodeGoUsage(data: unknown): Quota[] {
+  const usage = asRecord(asRecord(data)?.usage)
+  if (!usage) throw new Error("No usage data returned from OpenCode Go")
+
+  const quotas: Quota[] = []
+  for (const [name, window, windowSec] of [
+    ["monthly", "Monthly", 30 * 86_400],
+    ["weekly", "Weekly", 7 * 86_400],
+    ["rolling", "5h", 5 * 3_600],
+  ] as const) {
+    const meter = asRecord(usage[name])
+    if (!meter) continue
+    const percent = meterNumber(meter.percent)
+    if (percent === null || percent > 100) {
+      throw new Error(`Invalid OpenCode Go ${window.toLowerCase()} usage meter`)
+    }
+    const label = `OpenCode Go — ${window}`
+    quotas.push({
+      key: quotaKey(label),
+      label,
+      remaining: clampFraction(1 - percent / 100),
+      resetAt: isoDate(meter.resetsAt),
+      raw: { usedPercent: percent, status: asString(meter.status), windowSec },
+    })
+  }
+  if (quotas.length === 0) {
+    throw new Error("Could not parse usage meters from OpenCode Go usage response")
+  }
   return quotas
 }
 
@@ -82,7 +113,8 @@ export class OpenCodeGoCollector implements Collector {
         if (!auth.ok || !asRecord(asRecord(auth.value)?.["opencode-go"])) return []
         return [{
           accountKey: "opencode-go:default", provider: this.provider, label: this.provider, collectorId: this.id,
-          discoveryError: "Missing OpenCode Go console session cookie and workspaceId/orgId in opencode-go.json. The inference API key cannot access subscription usage meters.",
+          discoveryError:
+            "Missing OpenCode Go config. Add an apiKey with Usage: Read, or a console session cookie and workspaceId/orgId in opencode-go.json.",
         }]
       }
       return [
@@ -97,18 +129,35 @@ export class OpenCodeGoCollector implements Collector {
     }
 
     const root = asRecord(result.value)
+    const email = asString(root?.email) || "OpenCode Go Account"
+    const label = `${email} (Go)`
+    const apiKey =
+      asString(root?.apiKey)?.trim() || asString(root?.accessToken)?.trim()
+
+    if (apiKey) {
+      return [
+        {
+          accountKey: "opencode-go:default",
+          provider: this.provider,
+          label,
+          collectorId: this.id,
+          data: { mode: "apiKey", apiKey } satisfies OpenCodeGoData,
+        },
+      ]
+    }
+
     const cookie = openCodeGoCookie(root)
     const workspaceId = asString(root?.workspaceId) || asString(root?.orgId) || ""
-    const email = asString(root?.email) || "OpenCode Go Account"
 
     if (!cookie || !workspaceId) {
       return [
         {
           accountKey: "opencode-go:default",
           provider: this.provider,
-          label: email,
+          label,
           collectorId: this.id,
-          discoveryError: "Missing authCookie/consoleSession or workspaceId/orgId in opencode-go.json",
+          discoveryError:
+            "Missing apiKey, or authCookie/consoleSession and workspaceId/orgId in opencode-go.json",
         },
       ]
     }
@@ -117,12 +166,12 @@ export class OpenCodeGoCollector implements Collector {
       {
         accountKey: "opencode-go:default",
         provider: this.provider,
-        label: `${email} (Go)`,
+        label,
         collectorId: this.id,
         data: {
+          mode: "console",
           cookie,
           workspaceId,
-          email,
         } satisfies OpenCodeGoData,
       },
     ]
@@ -139,41 +188,87 @@ export class OpenCodeGoCollector implements Collector {
       return errorResult(ref, "Missing OpenCode Go config", Date.now() - startedAt)
     }
 
+    const secret = data.mode === "apiKey" ? data.apiKey : data.cookie
     try {
-      const response = await fetchWithTimeout(
-        "https://opencode.ai/console/api/go/status",
-        {
-          headers: {
-            Cookie: data.cookie,
-            "x-org-id": data.workspaceId,
-            "User-Agent":
-              "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          },
-        },
-        this.config.requestTimeoutMs,
-      )
-
-      if (
-        response.status === 401 ||
-        response.status === 403 ||
-        response.redirected
-      ) {
-        throw new Error("Session expired or unauthorized (check authCookie / __Host-console_session)")
-      }
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`)
-      }
-
-      const quotas = parseOpenCodeGoStatus(await response.json())
-
-      return successResult(
+      const quotas =
+        data.mode === "apiKey"
+          ? await this.collectApiKey(data.apiKey)
+          : await this.collectConsole(data.cookie, data.workspaceId)
+      return successResult(ref, ref.label, quotas, Date.now() - startedAt)
+    } catch (error) {
+      return errorResult(
         ref,
-        `${data.email} (Go)`,
-        quotas,
+        errorMessage(error).replaceAll(secret, "[redacted]"),
         Date.now() - startedAt,
       )
-    } catch (error) {
-      return errorResult(ref, errorMessage(error).replaceAll(data.cookie, "[redacted]"), Date.now() - startedAt)
     }
+  }
+
+  private async collectApiKey(apiKey: string): Promise<Quota[]> {
+    const response = await fetchWithTimeout(
+      USAGE_API_URL,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: "application/json",
+          "User-Agent": "ai-usage/0.1",
+        },
+      },
+      this.config.requestTimeoutMs,
+    )
+
+    if (response.status === 401) {
+      throw new Error(
+        "OpenCode Go API key is invalid or expired (check apiKey in opencode-go.json)",
+      )
+    }
+    if (response.status === 403) {
+      throw new Error(
+        "OpenCode Go API key is not covered by an active Go subscription (or lacks Usage: Read)",
+      )
+    }
+    if (response.redirected) {
+      throw new Error(
+        "OpenCode Go usage request was redirected; check apiKey in opencode-go.json",
+      )
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`)
+    }
+
+    return parseOpenCodeGoUsage(await response.json())
+  }
+
+  private async collectConsole(
+    cookie: string,
+    workspaceId: string,
+  ): Promise<Quota[]> {
+    const response = await fetchWithTimeout(
+      "https://opencode.ai/console/api/go/status",
+      {
+        headers: {
+          Cookie: cookie,
+          "x-org-id": workspaceId,
+          "User-Agent":
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        },
+      },
+      this.config.requestTimeoutMs,
+    )
+
+    if (
+      response.status === 401 ||
+      response.status === 403 ||
+      response.redirected
+    ) {
+      throw new Error(
+        "Session expired or unauthorized (check authCookie / __Host-console_session)",
+      )
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`)
+    }
+
+    return parseOpenCodeGoStatus(await response.json())
   }
 }
